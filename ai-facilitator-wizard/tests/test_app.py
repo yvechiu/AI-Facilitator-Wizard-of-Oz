@@ -34,6 +34,12 @@ def test_console_demo_preview_edit_send_and_next(tmp_path, monkeypatch):
     row = db.rows("SELECT * FROM operations")[0]
     assert row["actual_sent_message"] == "手動編輯，請每位成員分享觀點。"
     assert row["send_status"] == "DEMO"
+    assert any("DEMO · Discord Message ID" in message.value for message in app.success)
+    assert not any("DeltaGenerator" in message.value for message in app.markdown)
+    by_label(app.button, "檢查資料完整性").click().run()
+    assert not app.exception
+    assert any("SQLite 完整性檢查通過" in message.value for message in app.success)
+    assert not any("DeltaGenerator" in message.value for message in app.markdown)
     assert by_label(app.button, "確認模擬發送").disabled
     by_label(app.button, "準備下一次操作（必要時先核對 Discord）").click().run()
     assert not app.exception

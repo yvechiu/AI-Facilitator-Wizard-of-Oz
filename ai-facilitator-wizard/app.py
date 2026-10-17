@@ -118,7 +118,10 @@ with preview:
                 st.error("操作未完整完成。請查詢下方紀錄；若為 PENDING 或 UNKNOWN，請先人工核對 Discord，勿直接重送。")
         if previous:
             status = previous["send_status"]
-            st.success(f"{status} · Discord Message ID：{previous['discord_message_id'] or '—'}") if status in {"SUCCESS", "DEMO"} else st.warning(f"{status}：{previous['error_message'] or '尚未確認，可能於送出期間中斷，請人工核對'}")
+            if status in {"SUCCESS", "DEMO"}:
+                st.success(f"{status} · Discord Message ID：{previous['discord_message_id'] or '—'}")
+            else:
+                st.warning(f"{status}：{previous['error_message'] or '尚未確認，可能於送出期間中斷，請人工核對'}")
             def next_operation():
                 st.session_state["operation_id"] = str(uuid.uuid4())
                 st.session_state["confirm_send"] = False
@@ -146,7 +149,10 @@ if session:
 with st.expander("資料庫維護"):
     st.caption(f"本地資料庫：{config.database_path}")
     if st.button("檢查資料完整性"):
-        st.success("SQLite 完整性檢查通過") if db.integrity_check() else st.error("資料完整性檢查失敗，請保留原檔並還原備份")
+        if db.integrity_check():
+            st.success("SQLite 完整性檢查通過")
+        else:
+            st.error("資料完整性檢查失敗，請保留原檔並還原備份")
     if st.button("建立本地備份"):
         try:
             destination = ROOT / "backups" / f"experiments-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.sqlite3"
