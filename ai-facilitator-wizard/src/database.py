@@ -14,6 +14,14 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript("""
+            -- Remove the previous one-channel-per-session restriction, including existing databases.
+            DROP TRIGGER IF EXISTS sessions_unique_channel_insert;
+            DROP TRIGGER IF EXISTS sessions_unique_channel_update;
+            CREATE TABLE IF NOT EXISTS channel_operations (
+              operation_id TEXT PRIMARY KEY, timestamp_utc TEXT NOT NULL,
+              guild_id TEXT NOT NULL, channel_name TEXT NOT NULL, demo_mode INTEGER NOT NULL,
+              channel_id TEXT, status TEXT NOT NULL, error TEXT
+            );
             CREATE TABLE IF NOT EXISTS sessions (
               session_id TEXT PRIMARY KEY, session_name TEXT NOT NULL,
               study_phase TEXT NOT NULL, experimental_condition TEXT NOT NULL,

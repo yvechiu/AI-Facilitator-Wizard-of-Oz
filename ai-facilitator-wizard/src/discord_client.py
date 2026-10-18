@@ -49,3 +49,39 @@ class DiscordClient:
         except (ValueError, KeyError, TypeError):
             return SendResult("UNKNOWN", error="Discord 回應缺少有效訊息 ID；請人工核對")
         return SendResult("SUCCESS", message_id=mid)
+
+    def create_text_channel(self, guild_id, name):
+        """Create a channel with explicit access for this bot. Never fetch participant messages."""
+        if not self.token:
+            return {"status": "FAILED", "error": "尚未設定 Bot Token"}
+        headers = {"Authorization": f"Bot {self.token}"}
+        try:
+            bot = self.http.get("https://discord.com/api/v10/users/@me", headers=headers,
+                                timeout=(5, 15), allow_redirects=False)
+            if bot.status_code != 200:
+                return {"status": "FAILED", "error": f"無法驗證 Bot 身分（HTTP {bot.status_code}）"}
+            bot_id = bot.json()["id"]
+            if not isinstance(bot_id, str) or not bot_id.isascii() or not bot_id.isdigit():
+                raise ValueError()
+        except (requests.RequestException, ValueError, KeyError, TypeError):
+            return {"status": "FAILED", "error": "無法取得 Bot 身分；尚未送出建立頻道請求"}
+        try:
+            response = self.http.post(
+                f"https://discord.com/api/v10/guilds/{guild_id}/channels", headers=headers,
+                json={"name": name, "type": 0, "permission_overwrites": [
+                    {"id": bot_id, "type": 1, "allow": "3072", "deny": "0"}]},
+                timeout=(5, 15), allow_redirects=False)
+        except requests.RequestException:
+            return {"status": "UNKNOWN", "error": "建立請求逾時或連線中斷；請到 Discord 核對，勿直接重建"}
+        if response.status_code >= 500:
+            return {"status": "UNKNOWN", "error": "Discord 伺服器錯誤；請核對是否已建立頻道，勿直接重建"}
+        if response.status_code != 201:
+            return {"status": "FAILED", "error": f"建立頻道失敗（HTTP {response.status_code}）；請檢查伺服器 ID、Bot Token、管理頻道及管理角色權限；429 請稍後再操作"}
+        try:
+            payload = response.json()
+            cid = payload["id"]
+            if not isinstance(cid, str) or not cid.isascii() or not cid.isdigit() or payload.get("type") != 0:
+                raise ValueError()
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return {"status": "UNKNOWN", "error": "建立回應不完整；請到 Discord 核對，勿直接重建"}
+        return {"status": "SUCCESS", "channel_id": cid}

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import sqlite3
 import streamlit as st
 from src.config import ROOT, load_config
+from src.channel_service import ChannelService
 from src.database import Database
 from src.discord_client import DiscordClient
 from src.session_service import SessionService
@@ -21,6 +22,7 @@ except Exception:
     st.stop()
 sessions = SessionService(db)
 logger = LoggingService(db, DiscordClient(config.token), config.demo_mode)
+channel_service = ChannelService(db, DiscordClient(config.token), config.demo_mode)
 st.info("DEMO 模式：只儲存模擬紀錄，絕不呼叫 Discord API。" if config.demo_mode else "正式模式：確認後將傳送至 Discord。")
 if not config.demo_mode and not config.token:
     st.error("正式模式尚未設定 DISCORD_BOT_TOKEN；請在本機 .env 設定後重新啟動。")
@@ -39,8 +41,48 @@ def safe_action(fn):
 
 with st.sidebar:
     st.header("實驗控制")
-    channel_name = st.selectbox("目標 Discord 頻道", list(config.channels))
-    chosen_channel = config.channels[channel_name]
+    with st.expander("在 Discord 新增文字頻道"):
+        st.caption("Bot 須先加入伺服器，並具備管理頻道、管理角色、檢視頻道及傳送訊息權限。建立時會為 Bot 設定檢視與發送權限；不會讀取參與者對話。")
+        guild_id = st.text_input("Discord 伺服器 ID")
+        new_channel_name = st.text_input("新增文字頻道名稱", placeholder="實驗-第一組")
+        st.caption("Demo 只建立本機模擬頻道；正式模式會真正新增 Discord 頻道。參與者存取沿用伺服器預設權限，請在 Discord 核對。")
+        create_context = (guild_id, new_channel_name, config.demo_mode)
+        if st.session_state.get("channel_create_context") != create_context:
+            st.session_state["channel_create_confirm"] = False
+            st.session_state["channel_create_context"] = create_context
+        create_confirmed = st.checkbox("我已確認伺服器及頻道名稱", key="channel_create_confirm")
+        if "channel_operation_id" not in st.session_state:
+            st.session_state["channel_operation_id"] = str(uuid.uuid4())
+        channel_opid = st.session_state["channel_operation_id"]
+        channel_result = channel_service.get(channel_opid)
+        if st.button("模擬建立頻道" if config.demo_mode else "確認建立 Discord 文字頻道",
+                     disabled=not create_confirmed or channel_result is not None):
+            try:
+                created = channel_service.create(channel_opid, guild_id, new_channel_name)
+                if created["status"] in {"SUCCESS", "DEMO"}:
+                    st.session_state["target_channel"] = created["channel_id"]
+                st.rerun()
+            except ValueError as error:
+                st.error(str(error))
+            except Exception:
+                st.error("建立操作未完整完成，請先核對 Discord 頻道清單及操作狀態，勿直接重建。")
+        if channel_result:
+            if channel_result["status"] in {"SUCCESS", "DEMO"}:
+                st.success(f"{channel_result['status']}：{channel_result['channel_name']}（{channel_result['channel_id']}）")
+            else:
+                st.warning(f"{channel_result['status']}：{channel_result['error'] or '結果尚未確認，請至 Discord 核對後再操作'}")
+            def next_channel_operation():
+                st.session_state["channel_operation_id"] = str(uuid.uuid4())
+                st.session_state["channel_create_confirm"] = False
+            st.button("準備建立另一個頻道（先核對上次結果）", on_click=next_channel_operation)
+    channel_options = {cid: name for name, cid in config.channels.items()}
+    for created_channel in channel_service.available():
+        channel_options[created_channel["channel_id"]] = created_channel["channel_name"]
+    if st.session_state.get("target_channel") not in channel_options:
+        st.session_state["target_channel"] = next(iter(channel_options))
+    chosen_channel = st.selectbox("目標 Discord 頻道", list(channel_options), key="target_channel",
+                                  format_func=lambda cid: f"{channel_options[cid]}（{cid}）")
+    channel_name = channel_options[chosen_channel]
     st.caption(f"頻道 ID：{chosen_channel}")
     with st.expander("建立 Session"):
         with st.form("create_session", clear_on_submit=True):
