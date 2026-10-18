@@ -31,7 +31,7 @@ DATABASE_PATH=runtime/experiments.sqlite3
 ```
 
 1. 左側選擇目標 Discord 文字頻道，或用「在 Discord 新增文字頻道」建立模擬頻道。**不必建立、開始或結束 Session。**
-2. 篩選 CPS 階段、子階段、介入類型或搜尋文字，按訊息卡片「選用／重新載入」。
+2. 點選「常態流程引導／特殊情境介入／通用訊息」，再依需要點階段或情境。找到訊息卡片後按「選用／重新載入」。
 3. 右側預覽模板及 Wizard 備註，可編輯發送內容。
 4. 確認頻道 ID 和內容後勾選確認，按「確認模擬發送」。應顯示 DEMO，不需 Token、不會呼叫 Discord API。
 5. 下方可儲存獨立的觀察事件與匯出本頻道的發送、觀察兩種 CSV；觀察未介入時須填理由。
@@ -75,9 +75,9 @@ ID 必須以 JSON 字串儲存（雙引號），實際填入 17–20 位數頻�
 
 ## 模板維護與研究範圍
 
-`data/messages.json` 內含 22 則繁體中文模板（10 則常態、12 則特殊）。涵蓋 A-1、A-2、A-3、B-1、C-1，不執行 C-2。約 45 分鐘的活動時間由研究者掌握。
+`data/messages.json` 內含 23 則繁體中文模板（10 則常態、6 則特殊、7 則通用）。特殊情境合併跨階段重複文案，舊紀錄中的模板 ID 與內容不變。涵蓋 A-1、A-2、A-3、B-1、C-1，不執行 C-2。約 45 分鐘的活動時間由研究者掌握。
 
-直接修改 JSON、新增物件即可擴充，不需更改 Python。每則包含 `message_id`、`title`、`cps_stage`、`cps_substage`、`intervention_type`、`category`、`trigger_condition`、`observable_indicators`、`content`、`wizard_notes`、`enabled`、`template_version`。ID 不可重複；`enabled` 為 JSON 布林值；類型為 routine 或 special。停用請設 `false`；修改內容時更新模板版本。程式會檢查結構與 Discord 2000 UTF-16 單位的長度限制。示範訊息僅引導程序與互動，正式研究前請依研究計畫審查模板及介入準則。
+直接修改 JSON、新增物件即可擴充，不需更改 Python。每則包含 `message_id`、`title`、`cps_stage`、`cps_substage`、`intervention_type`、`category`、`trigger_condition`、`observable_indicators`、`content`、`wizard_notes`、`enabled`、`template_version`。ID 不可重複；`enabled` 為 JSON 布林值；類型為 routine、special 或 general。跨階段的特殊情境使用 cps_stage=跨階段、cps_substage=特殊情境；通用訊息使用 cps_stage=跨階段、cps_substage=通用訊息。原本按階段分類的模板仍可載入。停用請設 `false`；修改內容時更新模板版本。程式會檢查結構與 Discord 2000 UTF-16 單位的長度限制。示範訊息僅引導程序與互動，正式研究前請依研究計畫審查模板及介入準則。
 
 ## 資料、匯出與備份
 
@@ -122,3 +122,15 @@ ID 必須以 JSON 字串儲存（雙引號），實際填入 17–20 位數頻�
 ### 升級後的既有資料
 
 不會刪除或改寫舊 Session、發送或觀察紀錄。選擇原 Discord 頻道時，會同時顯示並匯出該頻道過去不同 Session 的 Wizard 紀錄，包含已結束的 Session；新操作不受舊 Session 結束狀態影響。CSV 保留 session_id 供追溯，觀察 CSV 額外附上 discord_channel_id。若舊頻道未出現在選單，將其 ID 補回 .env 的 DISCORD_CHANNELS 後重啟即可。系統仍不下載或保存 Discord 參與者對話。
+
+## 訊息選擇介面（試用版）
+
+- 常態流程引導：理解挑戰再選 A-1／A-2／A-3；產生點子（B-1）與行動準備（C-1）直接顯示訊息，不含 C-2。
+- 特殊情境介入：按討論停滯、偏離任務、過早收斂、參與不平衡、假性共識或需要釐清直接找訊息。
+- 通用訊息：直接顯示七則經確認的跨階段模板，不要求每階段全部發送。
+- 分類按鈕有選取底色，發送後停留原分類；往返入口會記住常態階段與特殊情境位置。切換分類會清除選用訊息，不會自動帶入另一則訊息。
+- 卡片顯示短標題、使用時機與實際內容；較長的研究說明、模板 ID、版本收在「使用說明與模板資訊」。
+- 有〈欄位〉的模板選用後會提供輸入框，填寫後自動組成預覽；欄位變動會重新產生內容，請最後再手動微調。欄位未填妥或訊息仍含〈佔位文字〉時不能發送，服務層亦會檢查。
+- 成果要求與操作說明須直接取自原腳本；目前提出的成果須引用成員明確說出的內容，不由 Wizard 自行整合。未提供完整原始腳本，程式不預填或產生這些內容。常態流程模板仍為示範文案，正式實驗前請依腳本審查。
+- 「＠工具代理」只會傳出文字，不會通知或啟動其他 Bot；仍禁止所有提及通知。
+- 輔助搜尋可跨分類找訊息，結果標明分類；點選分類按鈕會清除搜尋。Wizard 觀察、匯出與資料庫維護收在下方展開區。

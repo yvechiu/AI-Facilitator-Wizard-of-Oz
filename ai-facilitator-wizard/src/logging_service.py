@@ -1,6 +1,7 @@
 import uuid
 from src.database import utc_now
 from src.discord_client import SendResult
+from src.message_service import has_placeholders
 
 
 class LoggingService:
@@ -28,6 +29,8 @@ class LoggingService:
         return rows[0] if rows else None
 
     def send(self, operation_id, session_id, template, text, channel_id, notes=""):
+        if has_placeholders(text):
+            raise ValueError("請先填妥模板欄位，不可發送含佔位文字的訊息")
         if not text.strip() or len(text.encode("utf-16-le")) // 2 > 2000:
             raise ValueError("訊息不可空白，且不可超過 2000 個 UTF-16 字元")
         token = getattr(self.client, "token", "")

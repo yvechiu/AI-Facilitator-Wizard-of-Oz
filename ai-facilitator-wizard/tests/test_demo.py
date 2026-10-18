@@ -112,3 +112,11 @@ def test_final_write_failure_leaves_pending_no_retry(db, session, template, clie
     db.connect = original_connect
     assert logger.send("disk-full", session, template, "訊息", "123456789012345678")["send_status"] == "PENDING"
     client.send.assert_called_once()
+
+
+def test_unfilled_placeholder_blocked_in_service(db, session, template, client):
+    logger = LoggingService(db, client, False)
+    with pytest.raises(ValueError, match="模板欄位"):
+        logger.send("unfilled", session, template, "還有〈剩餘分鐘數〉分鐘", "123456789012345678")
+    client.send.assert_not_called()
+    assert db.rows("SELECT * FROM operations") == []
