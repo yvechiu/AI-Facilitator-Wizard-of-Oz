@@ -115,3 +115,11 @@ def test_create_channel_ui_demo(tmp_path, monkeypatch):
     assert "實驗新組" in app.selectbox(key="target_channel").options[-1]
     assert app.selectbox(key="target_channel").value != "123456789012345678"
     assert label(app.button, "模擬建立頻道").disabled
+    selected_channel = app.selectbox(key="target_channel").value
+    app.button(key="R01").click().run()
+    app.checkbox(key="confirm_send").check().run()
+    label(app.button, "確認模擬發送").click().run()
+    assert not app.exception
+    rows = Database(tmp_path / "channel-ui.sqlite3").rows("SELECT * FROM operations")
+    assert len(rows) == 1 and rows[0]["discord_channel_id"] == selected_channel
+    assert rows[0]["send_status"] == "DEMO"

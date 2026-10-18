@@ -1,7 +1,6 @@
 from pathlib import Path
 from streamlit.testing.v1 import AppTest
 from src.database import Database
-from src.session_service import SessionService
 from src.discord_client import DiscordClient
 
 
@@ -18,11 +17,10 @@ def test_console_demo_preview_edit_send_and_next(tmp_path, monkeypatch):
         raise AssertionError("Demo 不可呼叫 DiscordClient.send")
     monkeypatch.setattr(DiscordClient, "send", forbidden)
     db = Database(path)
-    service = SessionService(db)
-    sid = service.create("UI Session", "前測", "WOZ", "123456789012345678")
-    service.start(sid)
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
     assert not app.exception
+    assert db.rows("SELECT * FROM sessions") == []
+    assert not any("Session" in item.label for item in [*app.button, *app.selectbox, *app.text_input, *app.checkbox])
     app.button(key="R01").click().run()
     assert not app.exception
     assert app.text_area(key="draft").value
@@ -49,3 +47,24 @@ def test_console_demo_preview_edit_send_and_next(tmp_path, monkeypatch):
     app.text_area(key="draft").set_value("變更內容需重新確認").run()
     assert not app.checkbox(key="confirm_send").value
     assert by_label(app.button, "確認模擬發送").disabled
+
+
+def test_switch_channel_clears_confirmation_and_separates_logs(tmp_path, monkeypatch):
+    path = tmp_path / "switch.sqlite3"
+    monkeypatch.setenv("DATABASE_PATH", str(path))
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("DISCORD_CHANNELS", '{"A組":"123456789012345678","B組":"223456789012345678"}')
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
+    app.button(key="R01").click().run()
+    app.checkbox(key="confirm_send").check().run()
+    by_label(app.button, "確認模擬發送").click().run()
+    app.selectbox(key="target_channel").select("223456789012345678").run()
+    assert not app.exception
+    assert not app.checkbox(key="confirm_send").value
+    app.checkbox(key="confirm_send").check().run()
+    assert not by_label(app.button, "確認模擬發送").disabled
+    by_label(app.button, "確認模擬發送").click().run()
+    assert not app.exception
+    rows = Database(path).rows("SELECT * FROM operations")
+    assert len(rows) == 2
+    assert {r["discord_channel_id"] for r in rows} == {"123456789012345678", "223456789012345678"}

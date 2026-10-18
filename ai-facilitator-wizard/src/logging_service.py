@@ -7,6 +7,22 @@ class LoggingService:
     def __init__(self, db, client, demo_mode=True):
         self.db, self.client, self.demo_mode = db, client, demo_mode
 
+    def _channel_record_id(self, channel_id):
+        """Keep legacy foreign keys internally; users work only with channels."""
+        if not isinstance(channel_id, str) or not channel_id.isascii() or not channel_id.isdigit() or not 17 <= len(channel_id) <= 20:
+            raise ValueError("請選擇有效的 Discord 文字頻道")
+        sid = f"channel:{'demo' if self.demo_mode else 'live'}:{channel_id}"
+        with self.db.connect() as db:
+            db.execute("INSERT INTO sessions VALUES (?,?,?,?,?,?,NULL,?) ON CONFLICT(session_id) DO NOTHING",
+                       (sid, channel_id, "", "DEMO" if self.demo_mode else "LIVE", channel_id, utc_now(), "系統自動建立的頻道紀錄關聯"))
+        return sid
+
+    def send_to_channel(self, operation_id, channel_id, template, text, notes=""):
+        return self.send(operation_id, self._channel_record_id(channel_id), template, text, channel_id, notes)
+
+    def observe_channel(self, channel_id, stage, problem, intervened, reason="", notes=""):
+        return self.observe(self._channel_record_id(channel_id), stage, problem, intervened, reason, notes)
+
     def get_operation(self, operation_id):
         rows = self.db.rows("SELECT * FROM operations WHERE operation_id=?", (operation_id,))
         return rows[0] if rows else None

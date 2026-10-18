@@ -6,10 +6,9 @@ from src.config import ROOT, load_config
 from src.channel_service import ChannelService
 from src.database import Database
 from src.discord_client import DiscordClient
-from src.session_service import SessionService
 from src.logging_service import LoggingService
 from src.message_service import STAGES, load_messages, filter_messages
-from src.export_service import export_csv
+from src.export_service import export_channel_csv, channel_records
 
 st.set_page_config(page_title="AI 引導員 Wizard 控制台", layout="wide")
 st.title("AI Facilitator · Wizard 控制台")
@@ -20,7 +19,6 @@ try:
 except Exception:
     st.error("設定、資料庫或訊息庫載入失敗。請依 README 檢查 .env、資料夾權限及 messages.json。")
     st.stop()
-sessions = SessionService(db)
 logger = LoggingService(db, DiscordClient(config.token), config.demo_mode)
 channel_service = ChannelService(db, DiscordClient(config.token), config.demo_mode)
 st.info("DEMO 模式：只儲存模擬紀錄，絕不呼叫 Discord API。" if config.demo_mode else "正式模式：確認後將傳送至 Discord。")
@@ -37,7 +35,7 @@ def safe_action(fn):
         fn()
         st.rerun()
     except (ValueError, sqlite3.Error):
-        st.error("操作無法完成：請確認 Session 狀態、欄位、ID 是否重複及資料庫權限。")
+        st.error("操作無法完成：請確認欄位內容及資料庫權限。")
 
 with st.sidebar:
     st.header("實驗控制")
@@ -84,29 +82,6 @@ with st.sidebar:
                                   format_func=lambda cid: f"{channel_options[cid]}（{cid}）")
     channel_name = channel_options[chosen_channel]
     st.caption(f"頻道 ID：{chosen_channel}")
-    with st.expander("建立 Session"):
-        with st.form("create_session", clear_on_submit=True):
-            new_id = st.text_input("Session ID（留空自動產生）")
-            name = st.text_input("Session 名稱")
-            phase = st.text_input("研究階段", "正式實驗")
-            condition = st.text_input("實驗條件", "Wizard of Oz")
-            notes = st.text_area("Session 備註")
-            if st.form_submit_button("建立"):
-                values = [new_id, name, phase, condition, notes]
-                if config.token and any(config.token in v for v in values):
-                    st.error("欄位不得包含 Bot Token")
-                else:
-                    safe_action(lambda: sessions.create(name, phase, condition, chosen_channel, notes, new_id or None))
-    all_sessions = sessions.list()
-    sid = st.selectbox("選擇 Session ID", [s["session_id"] for s in all_sessions],
-                       format_func=lambda x: next(f"{s['session_name']} · {x}" for s in all_sessions if s['session_id'] == x)) if all_sessions else None
-    session = sessions.get(sid) if sid else None
-    if session:
-        st.caption(f"開始（台灣）：{taiwan(session['start_time'])}\n結束：{taiwan(session['end_time'])}")
-        if st.button("開始 Session", disabled=bool(session["start_time"])):
-            safe_action(lambda: sessions.start(sid))
-        if st.button("結束 Session", disabled=not session["start_time"] or bool(session["end_time"])):
-            safe_action(lambda: sessions.end(sid))
     stage_choice = st.selectbox("CPS 階段", ["全部", *STAGES])
     stage = None if stage_choice == "全部" else stage_choice
     substages = STAGES[stage] if stage else [s for items in STAGES.values() for s in items]
@@ -142,19 +117,21 @@ with preview:
         send_notes = st.text_input("本次操作備註")
         st.write(f"目標：{channel_name}（{chosen_channel}）")
         st.caption(f"原始模板：{selected['content']}")
+        target = (chosen_channel, config.demo_mode)
+        if st.session_state.get("operation_target") != target:
+            st.session_state["operation_id"] = str(uuid.uuid4())
+            st.session_state["operation_target"] = target
+            st.session_state["confirm_send"] = False
         opid = st.session_state["operation_id"]
         previous = logger.get_operation(opid)
-        context = (sid, chosen_channel, text, send_notes, config.demo_mode)
+        context = (chosen_channel, text, send_notes, config.demo_mode)
         if st.session_state.get("confirm_context") != context:
             st.session_state["confirm_send"] = False
             st.session_state["confirm_context"] = context
-        confirmed = st.checkbox("我已確認 Session、目標頻道及訊息內容", key="confirm_send")
-        valid = bool(session and session["start_time"] and not session["end_time"] and session["discord_channel_id"] == chosen_channel)
-        if not valid:
-            st.warning("請建立並開始 Session，且選擇與 Session 相同的頻道。")
-        if st.button("確認模擬發送" if config.demo_mode else "確認發送 Discord", type="primary", disabled=not confirmed or not valid or previous is not None):
+        confirmed = st.checkbox("我已確認目標頻道及訊息內容", key="confirm_send")
+        if st.button("確認模擬發送" if config.demo_mode else "確認發送 Discord", type="primary", disabled=not confirmed or previous is not None):
             try:
-                result = logger.send(opid, sid, selected, text, chosen_channel, send_notes)
+                result = logger.send_to_channel(opid, chosen_channel, selected, text, send_notes)
                 st.rerun()
             except Exception:
                 st.error("操作未完整完成。請查詢下方紀錄；若為 PENDING 或 UNKNOWN，請先人工核對 Discord，勿直接重送。")
@@ -169,7 +146,7 @@ with preview:
                 st.session_state["confirm_send"] = False
             st.button("準備下一次操作（必要時先核對 Discord）", on_click=next_operation)
 
-if session:
+if chosen_channel:
     st.divider()
     st.subheader("Wizard 觀察紀錄")
     with st.form("observation", clear_on_submit=True):
@@ -179,14 +156,14 @@ if session:
         reason = st.text_input("未介入原因（未勾選時必填）")
         obs_notes = st.text_area("自由備註")
         if st.form_submit_button("儲存觀察"):
-            safe_action(lambda: logger.observe(sid, obs_stage, problem, intervened, reason, obs_notes))
-    st.subheader("本 Session 紀錄與匯出")
-    rows = db.rows("SELECT * FROM operations WHERE session_id=? ORDER BY timestamp_utc DESC", (sid,))
+            safe_action(lambda: logger.observe_channel(chosen_channel, obs_stage, problem, intervened, reason, obs_notes))
+    st.subheader("本頻道紀錄與匯出")
+    rows = channel_records(db, "operations", chosen_channel)
     st.dataframe([{**r, "台灣時間": taiwan(r["timestamp_utc"])} for r in rows], use_container_width=True)
     if any(r["send_status"] in {"PENDING", "UNKNOWN"} for r in rows):
         st.warning("存在 PENDING／UNKNOWN：可能已送達，請人工核對 Discord；系統不會自動重試。")
-    for table, label in [("operations", "發送紀錄"), ("observations", "觀察紀錄"), ("sessions", "Session 基本資料")]:
-        st.download_button(f"匯出 {label} CSV", export_csv(db, table, sid), file_name=f"{table}.csv", mime="text/csv")
+    for table, label in [("operations", "發送紀錄"), ("observations", "觀察紀錄")]:
+        st.download_button(f"匯出 {label} CSV", export_channel_csv(db, table, chosen_channel), file_name=f"{chosen_channel}-{table}.csv", mime="text/csv")
 
 with st.expander("資料庫維護"):
     st.caption(f"本地資料庫：{config.database_path}")

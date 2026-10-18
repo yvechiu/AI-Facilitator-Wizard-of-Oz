@@ -30,15 +30,14 @@ DISCORD_CHANNELS={"示範頻道":"123456789012345678"}
 DATABASE_PATH=runtime/experiments.sqlite3
 ```
 
-1. 左側選擇頻道，展開「建立 Session」，輸入名稱、研究階段、實驗條件與備註。可自行指定唯一 Session ID，留空則使用 UUID。
-2. 建立後選擇 Session，按「開始 Session」。Session 頻道建立後固定；切換小組時建立或選擇另一個 Session。
-3. 篩選 CPS 階段、子階段、介入類型或搜尋文字，按訊息卡片「選用／重新載入」。
-4. 右側預覽可觀察徵象、原始模板及 Wizard 備註，可編輯發送內容。
-5. 確認 Session、頻道 ID、內容後勾選確認，按「確認模擬發送」。應顯示 **DEMO**，不需 Token、不會呼叫 Discord API。
-6. 下方可儲存獨立的觀察事件與匯出三種 CSV；觀察未介入時須填理由。
-7. 要再次發送，明確按「準備下一次操作」，重新確認。完成活動後按「結束 Session」，已結束的 Session 不可繼續發送。
+1. 左側選擇目標 Discord 文字頻道，或用「在 Discord 新增文字頻道」建立模擬頻道。**不必建立、開始或結束 Session。**
+2. 篩選 CPS 階段、子階段、介入類型或搜尋文字，按訊息卡片「選用／重新載入」。
+3. 右側預覽模板及 Wizard 備註，可編輯發送內容。
+4. 確認頻道 ID 和內容後勾選確認，按「確認模擬發送」。應顯示 DEMO，不需 Token、不會呼叫 Discord API。
+5. 下方可儲存獨立的觀察事件與匯出本頻道的發送、觀察兩種 CSV；觀察未介入時須填理由。
+6. 再次發送前按「準備下一次操作」並重新確認。切換頻道會清除發送確認，歷史紀錄與匯出也跟著頻道切換。
 
-Demo 與正式紀錄以 `send_status=DEMO` 區分；分析時請排除 Demo。建議用獨立的 Demo Session，正式實驗亦可在 `.env` 指定不同 SQLite 檔案。變更 `.env` 後請停止並重新啟動程式；系統已存在的環境變數優先於 `.env`。
+Demo 發送以 `send_status=DEMO` 區分；新觀察紀錄的 `session_id` 以 `channel:demo:` 或 `channel:live:` 前綴區分模式。同一頻道的匯出包含該頻道所有 Wizard 紀錄，分析時請排除 Demo。可在 `.env` 指定不同 SQLite 檔案將 Demo 與正式資料完全分開。變更 `.env` 後請停止並重新啟動程式；系統已存在的環境變數優先於 `.env`。
 
 ## 建立 Discord Bot 與設定正式頻道
 
@@ -60,7 +59,7 @@ ID 必須以 JSON 字串儲存（雙引號），實際填入 17–20 位數頻�
 
 ### 正式測試第一則訊息
 
-先使用只有研究者的測試頻道，重新啟動程式，確認畫面顯示正式模式。建立並開始「正式測試」Session，選擇一則模板，預覽後明確確認發送。成功時應顯示 `SUCCESS` 與 Discord Message ID，並到 Discord 人工確認內容、身分和頻道。程式設定 `allowed_mentions.parse=[]`，禁止文字中的 `@everyone`、角色及使用者提及意外通知。
+先使用只有研究者的測試頻道，重新啟動程式，確認畫面顯示正式模式。選擇目標測試頻道與一則模板，預覽後明確確認發送。成功時應顯示 `SUCCESS` 與 Discord Message ID，並到 Discord 人工確認內容、身分和頻道。程式設定 `allowed_mentions.parse=[]`，禁止文字中的 `@everyone`、角色及使用者提及意外通知。
 
 自動化測試全用 Mock，**沒有真實 Token 時不能視為已通過 Discord 實際傳送驗收**。本次開發沒有進行真實發送。
 
@@ -83,9 +82,9 @@ ID 必須以 JSON 字串儲存（雙引號），實際填入 17–20 位數頻�
 ## 資料、匯出與備份
 
 - 預設資料庫：專案下 `runtime/experiments.sqlite3`，啟動時自動初始化。Windows 重啟後以相同路徑啟動即可讀取原紀錄，請勿刪除此資料夾。
-- SQLite 是正式資料來源；Session、發送操作、觀察事件分表儲存。發送保留原始模板、實際內容、編輯標記、版本與 Discord ID。
+- SQLite 是正式資料來源；發送操作與觀察事件分表儲存並依頻道管理。為相容舊資料，保留 sessions 表與 session_id 欄位，新紀錄由系統自動建立內部關聯，操作上不需管理 Session。發送保留原始模板、實際內容、編輯標記、版本與 Discord ID。
 - 所有時間以含 UTC offset 的 ISO 8601 儲存，介面顯示台灣 UTC+8。CSV 保留原始 UTC 完整時間戳記。
-- 每個 Session 提供「發送紀錄」「觀察紀錄」「Session 基本資料」CSV，UTF-8 with BOM，Windows Excel 可讀繁體中文；多行訊息與逗號透過 CSV quoting 保留。若自由文字以 `=` 等開頭，請以 Excel 的文字匯入方式開啟，避免將研究資料當作公式。
+- 每個頻道提供「發送紀錄」「觀察紀錄」CSV，UTF-8 with BOM，Windows Excel 可讀繁體中文；多行訊息與逗號透過 CSV quoting 保留。若自由文字以 `=` 等開頭，請以 Excel 的文字匯入方式開啟，避免將研究資料當作公式。
 - 「資料庫維護」可執行 SQLite integrity_check 與 foreign_key_check，並用 SQLite backup API 建立一致備份，預設 `backups/experiments-UTC時間.sqlite3`。
 - 將備份另複製至研究者管理的安全磁碟。還原時先關閉程式，保留目前資料庫副本，再以完整備份取代 `.env` 指定的資料庫，重新啟動並執行完整性檢查。
 - `.gitignore` 排除 `.env`、runtime、backups、SQLite、CSV 與 log。程式不會執行 Git、上傳研究紀錄或使用外部資料儲存。SQLite 本身未加密，請使用 Windows 帳號權限與磁碟加密保護資料；不要將研究資料存進版本控制目錄中其他未忽略的路徑。
@@ -96,11 +95,11 @@ ID 必須以 JSON 字串儲存（雙引號），實際填入 17–20 位數頻�
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-測試使用暫存 SQLite、Mock HTTP 和 Streamlit AppTest，涵蓋載入／篩選、預覽編輯、Demo 禁止 API、成功／失敗／逾時、發送前持久化、資料庫失敗禁止發送、重複操作、崩潰後 PENDING、跨 Session 隔離、CSV BOM／多行內容、重啟持久化、備份、Token 遮蔽及 UI 確認重設。
+測試使用暫存 SQLite、Mock HTTP 和 Streamlit AppTest，涵蓋載入／篩選、預覽編輯、Demo 禁止 API、成功／失敗／逾時、發送前持久化、資料庫失敗禁止發送、重複操作、崩潰後 PENDING、跨頻道隔離與舊 Session 紀錄相容、CSV BOM／多行內容、重啟持久化、備份、Token 遮蔽及 UI 確認重設。
 
 - `app.py`：單頁操作介面。
 - `src/config.py`：本機設定；`discord_client.py`：REST 與安全錯誤摘要。
-- `database.py`：SQLite 初始化／備份；`session_service.py`：Session 生命週期。
+- `database.py`：SQLite 初始化／備份；`session_service.py`：保留舊版資料相容介面。
 - `message_service.py`：模板驗證與搜尋；`logging_service.py`：發送與觀察紀錄；`export_service.py`：CSV。
 - `start.bat`：Windows 啟動；`.streamlit/config.toml`：localhost 與停用使用統計。
 
@@ -108,7 +107,7 @@ ID 必須以 JSON 字串儲存（雙引號），實際填入 17–20 位數頻�
 
 ## 從控制台新增 Discord 文字頻道
 
-已恢復原本獨立選頻道與 Session 的流程，不再限制同一頻道只能建立一個場次。升級會移除上一版的資料庫限制，舊資料保留。
+已移除手動建立、選擇、開始及結束 Session 的介面，不限制每個頻道的使用次數。選好頻道後即可操作，舊資料保留。
 
 1. Bot 仍須先使用安裝連結加入指定伺服器；這一步不能由本機程式代為授權。若已加入，不必重加。
 2. 為 Bot 授予「管理頻道」「管理角色」「檢視頻道」「傳送訊息」權限（不需 Administrator）。管理角色用於設定頻道權限覆寫；Bot 無法授予自己原本沒有的權限。
@@ -116,6 +115,10 @@ ID 必須以 JSON 字串儲存（雙引號），實際填入 17–20 位數頻�
 4. 控制台左側展開「在 Discord 新增文字頻道」，輸入伺服器 ID 與頻道名稱，確認後建立。Demo 只模擬、不呼叫任何 Discord API。
 5. 正式模式會在該伺服器建立一般文字頻道，並給 Bot 明確的檢視／傳送權限。Bot 已是伺服器成員，不需要另一次邀請進頻道。新頻道沿用伺服器預設的參與者權限，不自動設為私人；研究者須在 Discord 核對哪些參與者可進入。
 6. 成功後新頻道自動成為目標頻道並保存在本機 SQLite，重新啟動仍可選擇，不需手動複製頻道 ID 至 .env。Demo 建立的模擬頻道不會出現在正式模式。
-7. 用該頻道建立並開始 Session，即可選模板、預覽與發送。原本的 .env 預設頻道仍然可用。
+7. 選擇該頻道後，即可選模板、預覽與發送，不需要建立 Session。原本的 .env 預設頻道仍然可用。
 
 建立前先保存 PENDING，同一操作不會重複呼叫建立 API。逾時、5xx 或中斷可能已成功建立，請先至 Discord 核對，系統不自動重試。若須恢復結果不明的頻道，可人工將其 ID 加到 .env。HTTP 401 檢查 Bot Token；403 檢查權限與是否已加入伺服器；429 等待限流解除後再操作。頻道建立紀錄存於 SQLite 的 channel_operations 表，可隨資料庫一起備份。系統不會抓取 Discord 歷史訊息或保存參與者對話。
+
+### 升級後的既有資料
+
+不會刪除或改寫舊 Session、發送或觀察紀錄。選擇原 Discord 頻道時，會同時顯示並匯出該頻道過去不同 Session 的 Wizard 紀錄，包含已結束的 Session；新操作不受舊 Session 結束狀態影響。CSV 保留 session_id 供追溯，觀察 CSV 額外附上 discord_channel_id。若舊頻道未出現在選單，將其 ID 補回 .env 的 DISCORD_CHANNELS 後重啟即可。系統仍不下載或保存 Discord 參與者對話。
