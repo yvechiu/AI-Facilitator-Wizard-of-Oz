@@ -19,6 +19,20 @@ class Database:
               study_phase TEXT NOT NULL, experimental_condition TEXT NOT NULL,
               discord_channel_id TEXT NOT NULL, start_time TEXT, end_time TEXT, notes TEXT NOT NULL
             );
+            -- Preserve legacy duplicate bindings, but forbid creating any new ones.
+            CREATE TRIGGER IF NOT EXISTS sessions_unique_channel_insert
+            BEFORE INSERT ON sessions
+            WHEN EXISTS (SELECT 1 FROM sessions WHERE discord_channel_id=NEW.discord_channel_id)
+            BEGIN
+              SELECT RAISE(ABORT, 'Discord channel already assigned');
+            END;
+            CREATE TRIGGER IF NOT EXISTS sessions_unique_channel_update
+            BEFORE UPDATE OF discord_channel_id ON sessions
+            WHEN NEW.discord_channel_id != OLD.discord_channel_id AND
+              EXISTS (SELECT 1 FROM sessions WHERE discord_channel_id=NEW.discord_channel_id)
+            BEGIN
+              SELECT RAISE(ABORT, 'Discord channel already assigned');
+            END;
             CREATE TABLE IF NOT EXISTS operations (
               operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id),
               timestamp_utc TEXT NOT NULL, message_id TEXT NOT NULL, template_version TEXT NOT NULL,

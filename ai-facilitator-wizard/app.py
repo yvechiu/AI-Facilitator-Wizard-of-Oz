@@ -39,27 +39,42 @@ def safe_action(fn):
 
 with st.sidebar:
     st.header("實驗控制")
-    channel_name = st.selectbox("目標 Discord 頻道", list(config.channels))
-    chosen_channel = config.channels[channel_name]
-    st.caption(f"頻道 ID：{chosen_channel}")
-    with st.expander("建立 Session"):
-        with st.form("create_session", clear_on_submit=True):
-            new_id = st.text_input("Session ID（留空自動產生）")
-            name = st.text_input("Session 名稱")
-            phase = st.text_input("研究階段", "正式實驗")
-            condition = st.text_input("實驗條件", "Wizard of Oz")
-            notes = st.text_area("Session 備註")
-            if st.form_submit_button("建立"):
-                values = [new_id, name, phase, condition, notes]
-                if config.token and any(config.token in v for v in values):
-                    st.error("欄位不得包含 Bot Token")
-                else:
-                    safe_action(lambda: sessions.create(name, phase, condition, chosen_channel, notes, new_id or None))
+    existing_sessions = sessions.list()
+    used_channels = {s["discord_channel_id"] for s in existing_sessions}
+    available_channels = {name: cid for name, cid in config.channels.items() if cid not in used_channels}
+    with st.expander("建立實驗場次（Session）"):
+        if not available_channels:
+            st.info("所有已設定頻道都已綁定場次。請選擇既有場次；新實驗請先在 .env 新增另一個文字頻道並重啟。")
+        else:
+            with st.form("create_session", clear_on_submit=True):
+                new_channel_name = st.selectbox("新場次 Discord 頻道", list(available_channels))
+                new_id = st.text_input("Session ID（留空自動產生）")
+                name = st.text_input("實驗場次名稱")
+                phase = st.text_input("研究階段", "正式實驗")
+                condition = st.text_input("實驗條件", "Wizard of Oz")
+                notes = st.text_area("Session 備註")
+                if st.form_submit_button("建立"):
+                    values = [new_id, name, phase, condition, notes]
+                    if config.token and any(config.token in v for v in values):
+                        st.error("欄位不得包含 Bot Token")
+                    else:
+                        def create_session():
+                            st.session_state["selected_session"] = sessions.create(
+                                name, phase, condition, available_channels[new_channel_name], notes, new_id or None)
+                        safe_action(create_session)
     all_sessions = sessions.list()
-    sid = st.selectbox("選擇 Session ID", [s["session_id"] for s in all_sessions],
+    sid = st.selectbox("選擇實驗場次（Session）", [s["session_id"] for s in all_sessions], key="selected_session",
                        format_func=lambda x: next(f"{s['session_name']} · {x}" for s in all_sessions if s['session_id'] == x)) if all_sessions else None
     session = sessions.get(sid) if sid else None
+    chosen_channel = session["discord_channel_id"] if session else None
+    channel_name = next((name for name, cid in config.channels.items() if cid == chosen_channel), "未設定頻道")
+    channel_configured = chosen_channel in config.channels.values()
     if session:
+        st.write(f"綁定頻道：{channel_name}（{chosen_channel}）")
+        if not channel_configured:
+            st.warning("此場次的頻道不在 .env 設定中，請補回原頻道 ID 並重啟，才能繼續發送。")
+        if sum(s["discord_channel_id"] == chosen_channel for s in all_sessions) > 1:
+            st.warning("舊資料有多個場次共用此頻道，紀錄已保留。請核對所選場次；新場次不再允許重複綁定。")
         st.caption(f"開始（台灣）：{taiwan(session['start_time'])}\n結束：{taiwan(session['end_time'])}")
         if st.button("開始 Session", disabled=bool(session["start_time"])):
             safe_action(lambda: sessions.start(sid))
@@ -107,9 +122,9 @@ with preview:
             st.session_state["confirm_send"] = False
             st.session_state["confirm_context"] = context
         confirmed = st.checkbox("我已確認 Session、目標頻道及訊息內容", key="confirm_send")
-        valid = bool(session and session["start_time"] and not session["end_time"] and session["discord_channel_id"] == chosen_channel)
+        valid = bool(session and session["start_time"] and not session["end_time"] and channel_configured)
         if not valid:
-            st.warning("請建立並開始 Session，且選擇與 Session 相同的頻道。")
+            st.warning("請先建立並開始實驗場次，並確認其綁定頻道仍在 .env 設定中。")
         if st.button("確認模擬發送" if config.demo_mode else "確認發送 Discord", type="primary", disabled=not confirmed or not valid or previous is not None):
             try:
                 result = logger.send(opid, sid, selected, text, chosen_channel, send_notes)
