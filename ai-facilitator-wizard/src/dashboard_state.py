@@ -5,7 +5,6 @@ from src.message_service import template_fields, render_template
 
 def initialize(state):
     state.setdefault("navigation_state", {"selected": "A-1", "expanded": {"routine", "phase:0"}})
-    state.setdefault("experiment_state", {"stage": None, "status": "未開始", "remaining": None})
     state.setdefault("message_drafts", {})
     state.setdefault("message_operations", {})
 

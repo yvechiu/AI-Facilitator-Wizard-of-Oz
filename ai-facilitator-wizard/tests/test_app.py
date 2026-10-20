@@ -204,7 +204,8 @@ def test_every_tree_category_can_expand_select_and_collapse(tmp_path, monkeypatc
                 assert all(not any(b.key == f"tree:{leaf['id']}" for b in app.button) for leaf in selectable)
         app.button(key=f"tree:{root['id']}").click().run()
         assert root["id"] not in app.session_state["navigation_state"]["expanded"]
-    assert app.session_state["experiment_state"] == {"stage": None, "status": "未開始", "remaining": None}
+    assert "experiment_state" not in app.session_state
+    assert all(row["sequence"] == 0 for row in Database(tmp_path / "all-categories.sqlite3").rows("SELECT * FROM phase_experiments"))
 
 
 def test_failed_send_preserves_error_and_blocks_duplicate(tmp_path, monkeypatch):

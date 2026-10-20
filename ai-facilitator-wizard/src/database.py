@@ -17,6 +17,19 @@ class Database:
             -- Remove the previous one-channel-per-session restriction, including existing databases.
             DROP TRIGGER IF EXISTS sessions_unique_channel_insert;
             DROP TRIGGER IF EXISTS sessions_unique_channel_update;
+            CREATE TABLE IF NOT EXISTS phase_experiments (
+              experiment_id TEXT NOT NULL UNIQUE, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL,
+              demo_mode INTEGER NOT NULL, phase_id TEXT, phase_name TEXT, sequence INTEGER NOT NULL DEFAULT 0,
+              effective_at TEXT, checked_at TEXT, PRIMARY KEY(guild_id,channel_id,demo_mode)
+            );
+            CREATE TABLE IF NOT EXISTS phase_events (
+              event_id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES phase_experiments(experiment_id),
+              guild_id TEXT NOT NULL, channel_id TEXT NOT NULL, demo_mode INTEGER NOT NULL,
+              phase_id TEXT NOT NULL, phase_name TEXT NOT NULL, sequence INTEGER NOT NULL,
+              payload TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
+              effective_at TEXT, error_message TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+              UNIQUE(experiment_id,sequence)
+            );
             CREATE TABLE IF NOT EXISTS channel_operations (
               operation_id TEXT PRIMARY KEY, timestamp_utc TEXT NOT NULL,
               guild_id TEXT NOT NULL, channel_name TEXT NOT NULL, demo_mode INTEGER NOT NULL,

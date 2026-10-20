@@ -4,6 +4,9 @@ import sqlite3
 import streamlit as st
 from src.config import ROOT, load_config
 from src.channel_service import ChannelService
+from src.phase_client import PhaseControlClient
+from src.phase_service import PhaseService
+from src.phase_ui import render_phase_controls
 from src.database import Database
 from src.discord_client import DiscordClient
 from src.logging_service import LoggingService
@@ -88,7 +91,18 @@ with st.sidebar:
     channel_name = channel_options[chosen_channel]
     st.caption(f"頻道 ID：{chosen_channel}")
 
+phase_channels = {cid for cid in config.channels.values()}
+for created in channel_service.available():
+    if created["guild_id"] == config.discord_guild_id:
+        phase_channels.add(created["channel_id"])
+# A locally created channel in another guild must not inherit the configured guild mapping.
+for created in channel_service.available():
+    if created["guild_id"] != config.discord_guild_id:
+        phase_channels.discard(created["channel_id"])
+phase_client = PhaseControlClient(config.tool_agent_control_url, config.phase_sync_token)
+phase_service = PhaseService(db, phase_client, config.discord_guild_id, phase_channels, config.demo_mode)
 with st.sidebar:
+    phase_current, phase_pending = render_phase_controls(phase_service, chosen_channel)
     render_tree(navigation_tree(templates))
 
 render_status(channel_name, chosen_channel)
@@ -157,7 +171,7 @@ with preview, st.container(key="wizard-preview-panel"):
                     update_text(st.session_state, selected)
                     st.session_state["confirm_send"] = False
                 st.button("插入工具代理提及", on_click=insert_tool_mention)
-                st.caption("此請求會呼叫指定工具代理，摘要本頻道自啟動後已收到的全部參與者討論；目前不會依整理範圍欄位過濾。變更欄位後可能需重新插入提及。")
+                st.caption("工具代理只讀取目前已同步階段的討論，@ 後的文字作為整理要求。變更欄位後可能需重新插入提及。")
             else:
                 st.info("尚未設定 TOOL_AGENT_USER_ID；＠工具代理目前只是文字。請在 .env 填入工具代理的使用者 ID 並重啟。")
         text = st.text_area("發送內容（可編輯）", key="draft", height=180,
@@ -168,6 +182,12 @@ with preview, st.container(key="wizard-preview-panel"):
         st.write(f"目標：{channel_name}（{chosen_channel}）")
         ready = all(value.strip() for value in values.values()) and not has_placeholders(text)
         ready = ready and bool(text.strip()) and len(text.encode("utf-16-le")) // 2 <= 2000
+        phase_required = not config.demo_mode and bool(config.phase_sync_token)
+        phase_ready = not phase_pending and (not phase_required or bool(phase_current and phase_current["sequence"]))
+        if selected["message_id"] == "G04" and not config.demo_mode:
+            phase_ready = phase_ready and bool(phase_current and phase_current["sequence"])
+        if not phase_ready:
+            st.warning("請先完成階段同步，再發送新階段引導或摘要請求；可在側邊欄重試原事件／查詢。")
         if not ready:
             st.warning("請填妥所有模板欄位，移除〈佔位文字〉，並確認內容不空白且在 2000 字元限制內。")
         opid = operation_id(st.session_state, selected["message_id"], chosen_channel, config.demo_mode)
@@ -177,7 +197,7 @@ with preview, st.container(key="wizard-preview-panel"):
             st.session_state["confirm_send"] = False
             st.session_state["confirm_context"] = context
         confirmed = st.checkbox("我已確認目標頻道及訊息內容", key="confirm_send")
-        if st.button("確認模擬發送" if config.demo_mode else "確認發送 Discord", type="primary", disabled=not confirmed or not ready or previous is not None):
+        if st.button("確認模擬發送" if config.demo_mode else "確認發送 Discord", type="primary", disabled=not confirmed or not ready or not phase_ready or previous is not None):
             try:
                 with st.spinner("正在儲存紀錄並發送，請勿重複操作…"):
                     result = logger.send_to_channel(opid, chosen_channel, selected, text, send_notes)

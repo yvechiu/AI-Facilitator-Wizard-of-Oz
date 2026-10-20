@@ -1,6 +1,6 @@
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -13,6 +13,9 @@ class Config:
     channels: dict[str, str]
     database_path: Path
     tool_agent_user_id: str = ""
+    discord_guild_id: str = "1499044385793507350"
+    tool_agent_control_url: str = "http://127.0.0.1:5860"
+    phase_sync_token: str = field(default="", repr=False)
 
 
 def load_config() -> Config:
@@ -29,4 +32,7 @@ def load_config() -> Config:
     if tool_id and (not tool_id.isascii() or not tool_id.isdigit() or not 17 <= len(tool_id) <= 20):
         raise ValueError("TOOL_AGENT_USER_ID 必須為工具代理的 17 至 20 位使用者 ID")
     path = Path(os.getenv("DATABASE_PATH", "runtime/experiments.sqlite3"))
-    return Config(mode == "true", os.getenv("DISCORD_BOT_TOKEN", ""), channels, path if path.is_absolute() else ROOT / path, tool_id)
+    return Config(mode == "true", os.getenv("DISCORD_BOT_TOKEN", ""), channels, path if path.is_absolute() else ROOT / path, tool_id,
+                  os.getenv("DISCORD_GUILD_ID", "1499044385793507350").strip(),
+                  os.getenv("TOOL_AGENT_CONTROL_URL", "http://127.0.0.1:5860").strip(),
+                  os.getenv("PHASE_SYNC_TOKEN", ""))
