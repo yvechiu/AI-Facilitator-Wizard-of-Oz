@@ -29,11 +29,11 @@ def leaf_for(message):
     if kind == "special":
         for key, _, aliases in SPECIAL:
             if message["category"] in aliases:
-                return f"special:{key}"
+                return "special"
     if kind == "general":
         for key, _, ids in GENERAL:
             if message["message_id"] in ids:
-                return f"general:{key}"
+                return "general"
     return "unmapped"
 
 
@@ -44,10 +44,8 @@ def navigation_tree(messages):
             {"id": sub.split()[0], "label": STAGE_LABELS[sub]} for sub in substages]})
     tree = [
         {"id": "routine", "label": TYPE_LABELS["routine"], "children": phases},
-        {"id": "special", "label": TYPE_LABELS["special"], "children": [
-            {"id": f"special:{key}", "label": label} for key, label, _ in SPECIAL]},
-        {"id": "general", "label": TYPE_LABELS["general"], "children": [
-            {"id": f"general:{key}", "label": label} for key, label, _ in GENERAL]},
+        {"id": "special", "label": TYPE_LABELS["special"]},
+        {"id": "general", "label": TYPE_LABELS["general"]},
     ]
     if any(leaf_for(m) == "unmapped" for m in messages):
         tree.append({"id": "unmapped", "label": "待確認分類（保留原訊息）"})
@@ -70,5 +68,6 @@ def search_messages(messages, leaf, query="", all_library=False):
     query = query.strip().casefold()
     tree = navigation_tree(messages)
     return [m for m in messages if m["enabled"] and (all_library or leaf_for(m) == leaf)
-            and query in " ".join([m["title"], m["content"], m["category"], TYPE_LABELS[m["intervention_type"]],
+            and query in " ".join([m["title"], m["content"], m["category"],
+                                   " ".join(label for _, label, aliases in SPECIAL if m["category"] in aliases), TYPE_LABELS[m["intervention_type"]],
                                    STAGE_LABELS.get(m["cps_substage"], m["cps_substage"]), breadcrumb(leaf_for(m), tree)]).casefold()]

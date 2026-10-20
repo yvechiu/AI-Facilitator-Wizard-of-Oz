@@ -1,5 +1,7 @@
 """Streamlit dashboard components using the existing session-state architecture."""
+import re
 import streamlit as st
+from src.dashboard_state import select_message
 from src.timers import initialize_timers, start_timer, stop_timer, elapsed, remaining, clock_text
 
 
@@ -12,7 +14,19 @@ def render_styles():
     [data-testid="stSidebar"] button {text-align:left;justify-content:flex-start;}
     [data-testid="stSidebar"] button[kind="primary"] {background:#e5eef5;color:#173c58;border:1px solid #93adc1;}
     [data-testid="stSidebar"] button[kind="secondary"] {border-color:transparent;background:transparent;}
-    div[data-testid="stCode"] pre {white-space:pre-wrap;}
+    div[class*="st-key-message-card-"] button {
+        width:100%;height:auto;min-height:8rem;padding:1.2rem;
+        text-align:left;justify-content:flex-start;border:1px solid #d1d5db;
+        border-radius:0.75rem;background:#fff;color:#173c58;
+    }
+    div[class*="st-key-message-card-"] button p {
+        white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;
+    }
+    div[class*="st-key-message-card-"] button:hover {border-color:#df9a32;background:#fffaf2;}
+    div[class*="st-key-message-card-"] button:focus-visible {outline:2px solid #df9a32;outline-offset:3px;}
+    div[class*="st-key-message-card-active-"] button {
+        border:2px solid #e5a132;background:#fffaf2;
+    }
     </style>""", unsafe_allow_html=True)
 
 
@@ -102,7 +116,13 @@ def render_tree(tree):
         nodes(tree)
 
 
-def render_copy(text):
-    # Streamlit's code block has a native clipboard button; text never enters executable HTML/JS.
-    st.caption("按右上角複製圖示，複製下方完整文字。")
-    st.code(text, language=None, wrap_lines=True)
+def render_message_card(message, text, category, active=False):
+    # Native button supplies keyboard access and callbacks; no HTML interpolation.
+    def literal(value):
+        return re.sub(r"([\\`*_{}\[\]()<>#+.!|~-])", r"\\\1", value)
+
+    label = f"**{literal(message['title'])}**\n\n{literal(category)}\n\n{literal(text)}"
+    state = "active" if active else "idle"
+    with st.container(key=f"message-card-{state}-{message['message_id']}"):
+        st.button(label, key=message["message_id"], use_container_width=True,
+                  on_click=select_message, args=(st.session_state, message))

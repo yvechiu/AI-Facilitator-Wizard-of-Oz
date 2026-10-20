@@ -20,8 +20,8 @@ def test_all_existing_messages_mapped_without_mutation():
     assert sorted(mapped) == sorted(m["message_id"] for m in messages if m["enabled"])
     assert messages == original
     assert "C-2" not in leaf_ids
-    assert "討論偏題" in breadcrumb("special:offtopic", tree)
-    assert leaf_for(next(m for m in messages if m["category"] == "偏離任務")) == "special:offtopic"
+    assert breadcrumb("special", tree) == "特殊情境介入"
+    assert leaf_for(next(m for m in messages if m["category"] == "偏離任務")) == "special"
 
 
 def test_unknown_messages_retained_for_human_review():
@@ -34,10 +34,10 @@ def test_unknown_messages_retained_for_human_review():
 @pytest.mark.parametrize("query", ["開啟挑戰探索", "每位成員", "常態流程引導", "A-1 建構機會"])
 def test_search_title_content_and_tags(query):
     assert search_messages(load_messages(), "A-1", query)
-    assert not search_messages(load_messages(), "general:other", query)
-    assert search_messages(load_messages(), "general:other", query, all_library=True)
+    assert all(m["intervention_type"] == "general" for m in search_messages(load_messages(), "general", query))
+    assert search_messages(load_messages(), "general", query, all_library=True)
 
 
 def test_search_displayed_category_alias():
-    matches = search_messages(load_messages(), "special:offtopic", "討論偏題")
+    matches = search_messages(load_messages(), "special", "討論偏題")
     assert matches and all(m["category"] == "偏離任務" for m in matches)

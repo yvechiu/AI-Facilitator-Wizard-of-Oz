@@ -13,7 +13,7 @@ from src.logging_service import LoggingService
 from src.message_service import STAGES, load_messages, template_fields, has_placeholders
 from src.export_service import export_channel_csv, channel_records
 from src.navigation import navigation_tree, breadcrumb, search_messages, leaf_for
-from src.dashboard_ui import render_styles, render_status, render_tree, render_copy
+from src.dashboard_ui import render_styles, render_status, render_tree, render_message_card
 from src.dashboard_state import initialize, draft_for, select_message, update_text, update_fields, operation_id, new_operation
 
 st.set_page_config(page_title="AI 引導員 Wizard 控制台", layout="wide")
@@ -121,19 +121,10 @@ with browse:
     if not matches:
         st.info("此分類或搜尋沒有符合的訊息。")
     for m in matches:
-        with st.container(border=True):
-            st.markdown(f"**{m['title']}**")
-            st.caption(breadcrumb(leaf_for(m), tree))
-            card_text = draft_for(st.session_state, m)["text"]
-            st.text(card_text)
-            actions = st.columns(3)
-            actions[0].button("編輯", key=m["message_id"], use_container_width=True,
-                              on_click=select_message, args=(st.session_state, m))
-            with actions[1].popover("複製", use_container_width=True):
-                render_copy(card_text)
-            actions[2].button("發送至 Discord", key=f"send:{m['message_id']}", use_container_width=True,
-                              on_click=select_message, args=(st.session_state, m))
-            st.caption("發送按鈕會開啟右側預覽，確認後才送出。")
+        render_message_card(
+            m, draft_for(st.session_state, m)["text"], breadcrumb(leaf_for(m), tree),
+            active=st.session_state.get("selected") == m["message_id"],
+        )
 with preview, st.container(key="wizard-preview-panel"):
     st.subheader("預覽與發送")
     selected = next((m for m in templates if m["message_id"] == st.session_state.get("selected")), None)
@@ -155,13 +146,6 @@ with preview, st.container(key="wizard-preview-panel"):
                 st.caption("請直接引用原階段腳本，不臨場增加要求。")
             elif field == "目前提出的成果":
                 st.caption("請引用成員明確提出的內容，不自行整合成新結論。")
-        with st.expander("使用說明與模板資訊"):
-            st.write(selected["observable_indicators"])
-            if selected["message_id"] == "G04" and config.tool_agent_user_id:
-                st.write("未插入真實提及時為普通文字；插入後僅呼叫設定的工具代理。通用訊息不需每階段逐則發送。")
-            else:
-                st.write(selected["wizard_notes"])
-            st.caption(f"{selected['message_id']} · 版本 {selected['template_version']} · {selected['cps_substage']}")
         if selected["message_id"] == "G04":
             if config.tool_agent_user_id:
                 def insert_tool_mention():
@@ -176,8 +160,6 @@ with preview, st.container(key="wizard-preview-panel"):
                 st.info("尚未設定 TOOL_AGENT_USER_ID；＠工具代理目前只是文字。請在 .env 填入工具代理的使用者 ID 並重啟。")
         text = st.text_area("發送內容（可編輯）", key="draft", height=180,
                             on_change=update_text, args=(st.session_state, selected))
-        with st.popover("複製編輯後內容"):
-            render_copy(text)
         send_notes = st.text_input("本次操作備註")
         st.write(f"目標：{channel_name}（{chosen_channel}）")
         ready = all(value.strip() for value in values.values()) and not has_placeholders(text)

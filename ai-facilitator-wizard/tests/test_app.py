@@ -95,7 +95,6 @@ def test_tree_navigation_preserves_experiment_and_expansion(tmp_path, monkeypatc
     app.button(key="tree:C-1").click().run()
     assert app.button(key="R09")
     app.button(key="tree:special").click().run()
-    app.button(key="tree:special:participation").click().run()
     assert app.button(key="S07")
     app.button(key="tree:A-1").click().run()
     assert app.button(key="R01")
@@ -114,7 +113,6 @@ def test_general_fields_block_send_and_preserve_edits(tmp_path, monkeypatch):
     monkeypatch.setattr(DiscordClient, "send", forbidden)
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
     app.button(key="tree:general").click().run()
-    app.button(key="tree:general:flow").click().run()
     assert len([b for b in app.button if b.key in {"G03", "G07"}]) == 2
     app.button(key="G03").click().run()
     app.checkbox(key="confirm_send").check().run()
@@ -132,7 +130,6 @@ def test_general_fields_block_send_and_preserve_edits(tmp_path, monkeypatch):
     assert row["actual_sent_message"] == "手動微調後的活動說明"
     assert "〈成果要求〉" in row["original_message"]
     app.button(key="tree:special").click().run()
-    app.button(key="tree:special:stall").click().run()
     assert app.text_area(key="draft").value == "手動微調後的活動說明"
     assert not app.checkbox(key="confirm_send").value
 
@@ -158,19 +155,19 @@ def test_drafts_survive_switching_messages_and_reselection_does_not_resend(tmp_p
     monkeypatch.setenv("DATABASE_PATH", str(path))
     monkeypatch.setenv("DEMO_MODE", "true")
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
-    app.button(key="send:R01").click().run()
+    app.button(key="R01").click().run()
     assert Database(path).rows("SELECT * FROM operations") == []
     app.text_area(key="draft").set_value("修改第一則\n保留換行").run()
     app.button(key="R02").click().run()
     app.text_area(key="draft").set_value("修改第二則").run()
     app.button(key="R01").click().run()
     assert app.text_area(key="draft").value == "修改第一則\n保留換行"
-    assert any(c.value == "修改第一則\n保留換行" for c in app.code)
+    assert "修改第一則\n保留換行" in app.button(key="R01").label
     app.checkbox(key="confirm_send").check().run()
     by_label(app.button, "確認模擬發送").click().run()
     app.button(key="R02").click().run()
     assert app.text_area(key="draft").value == "修改第二則"
-    app.button(key="send:R01").click().run()
+    app.button(key="R01").click().run()
     assert by_label(app.button, "確認模擬發送").disabled
     assert len(Database(path).rows("SELECT * FROM operations")) == 1
     assert not app.exception
@@ -186,7 +183,7 @@ def test_every_tree_category_can_expand_select_and_collapse(tmp_path, monkeypatc
     for root in navigation_tree(messages):
         if root["id"] not in app.session_state["navigation_state"]["expanded"]:
             app.button(key=f"tree:{root['id']}").click().run()
-        for node in root["children"]:
+        for node in root.get("children", [root]):
             if "children" in node:
                 if node["id"] not in app.session_state["navigation_state"]["expanded"]:
                     app.button(key=f"tree:{node['id']}").click().run()
@@ -202,8 +199,12 @@ def test_every_tree_category_can_expand_select_and_collapse(tmp_path, monkeypatc
             if "children" in node:
                 app.button(key=f"tree:{node['id']}").click().run()
                 assert all(not any(b.key == f"tree:{leaf['id']}" for b in app.button) for leaf in selectable)
-        app.button(key=f"tree:{root['id']}").click().run()
-        assert root["id"] not in app.session_state["navigation_state"]["expanded"]
+        if "children" in root:
+            app.button(key=f"tree:{root['id']}").click().run()
+            assert root["id"] not in app.session_state["navigation_state"]["expanded"]
+        else:
+            assert app.session_state["navigation_state"]["selected"] == root["id"]
+            assert not any(b.key and b.key.startswith(f"tree:{root['id']}:") for b in app.button)
     assert "experiment_state" not in app.session_state
     assert all(row["sequence"] == 0 for row in Database(tmp_path / "all-categories.sqlite3").rows("SELECT * FROM phase_experiments"))
 
@@ -218,7 +219,7 @@ def test_failed_send_preserves_error_and_blocks_duplicate(tmp_path, monkeypatch)
     sender = Mock(return_value=SendResult("FAILED", error="Discord 拒絕請求（HTTP 403）"))
     monkeypatch.setattr(DiscordClient, "send", sender)
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
-    app.button(key="send:R01").click().run()
+    app.button(key="R01").click().run()
     app.checkbox(key="confirm_send").check().run()
     by_label(app.button, "確認發送 Discord").click().run()
     assert any("FAILED" in w.value and "403" in w.value for w in app.warning)
@@ -242,7 +243,6 @@ def test_insert_tool_mention_then_demo_send_without_api(tmp_path, monkeypatch):
     monkeypatch.setattr(DiscordClient, "send", forbidden)
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
     app.button(key="tree:general").click().run()
-    app.button(key="tree:general:other").click().run()
     app.button(key="G04").click().run()
     app.text_input(key="field:G04:本次整理範圍").set_value("本階段的討論").run()
     by_label(app.button, "插入工具代理提及").click().run()
