@@ -26,14 +26,8 @@ def leaf_for(message):
     kind = message["intervention_type"]
     if kind == "routine" and message["cps_substage"] in STAGE_LABELS:
         return message["cps_substage"].split()[0]
-    if kind == "special":
-        for key, _, aliases in SPECIAL:
-            if message["category"] in aliases:
-                return "special"
-    if kind == "general":
-        for key, _, ids in GENERAL:
-            if message["message_id"] in ids:
-                return "general"
+    if kind in {"special", "general"}:
+        return kind
     return "unmapped"
 
 

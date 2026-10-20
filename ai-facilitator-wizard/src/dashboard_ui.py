@@ -22,6 +22,15 @@ def render_styles():
     div[class*="st-key-message-card-"] button p {
         white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;
     }
+    div[class*="st-key-message-card-"] button [data-testid="stMarkdownContainer"] > p:first-child {
+        font-size:calc(1rem + 2px);
+    }
+    div[class*="st-key-message-card-"] button [data-testid="stMarkdownContainer"] > p:nth-child(2) {
+        font-size:calc(1rem - 2px);
+    }
+    div[class*="st-key-message-card-"] button [data-testid="stMarkdownContainer"] > p:nth-child(n+3) {
+        color:#a34712;
+    }
     div[class*="st-key-message-card-"] button:hover {border-color:#df9a32;background:#fffaf2;}
     div[class*="st-key-message-card-"] button:focus-visible {outline:2px solid #df9a32;outline-offset:3px;}
     div[class*="st-key-message-card-active-"] button {
@@ -121,7 +130,7 @@ def render_message_card(message, text, category, active=False):
     def literal(value):
         return re.sub(r"([\\`*_{}\[\]()<>#+.!|~-])", r"\\\1", value)
 
-    label = f"**{literal(message['title'])}**\n\n{literal(category)}\n\n{literal(text)}"
+    label = f"**{literal(message['message_id'])}｜{literal(message['title'])}**\n\n{literal(category)}\n\n{literal(text)}"
     state = "active" if active else "idle"
     with st.container(key=f"message-card-{state}-{message['message_id']}"):
         st.button(label, key=message["message_id"], use_container_width=True,

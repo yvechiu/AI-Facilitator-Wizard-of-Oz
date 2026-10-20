@@ -14,8 +14,12 @@ STAGES = {
 def load_messages(path=None):
     path = path or Path(__file__).resolve().parents[1] / "data/messages.json"
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, list) or not data:
-        raise ValueError("訊息庫必須為非空陣列")
+    return validate_messages(data)
+
+
+def validate_messages(data):
+    if not isinstance(data, list):
+        raise ValueError("訊息庫必須為陣列")
     seen = set()
     for m in data:
         if not isinstance(m, dict) or not REQUIRED <= m.keys():

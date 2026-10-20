@@ -17,6 +17,9 @@ class Database:
             -- Remove the previous one-channel-per-session restriction, including existing databases.
             DROP TRIGGER IF EXISTS sessions_unique_channel_insert;
             DROP TRIGGER IF EXISTS sessions_unique_channel_update;
+            CREATE TABLE IF NOT EXISTS message_library (
+              message_id TEXT PRIMARY KEY, payload TEXT, deleted INTEGER NOT NULL DEFAULT 0
+            );
             CREATE TABLE IF NOT EXISTS phase_experiments (
               experiment_id TEXT NOT NULL UNIQUE, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL,
               demo_mode INTEGER NOT NULL, phase_id TEXT, phase_name TEXT, sequence INTEGER NOT NULL DEFAULT 0,

@@ -7,10 +7,12 @@ from src.channel_service import ChannelService
 from src.phase_client import PhaseControlClient
 from src.phase_service import PhaseService
 from src.phase_ui import render_phase_controls
+from src.library_service import LibraryService
+from src.library_ui import render_create, render_library_actions, show_library_notice
 from src.database import Database
 from src.discord_client import DiscordClient
 from src.logging_service import LoggingService
-from src.message_service import STAGES, load_messages, template_fields, has_placeholders
+from src.message_service import STAGES, template_fields, has_placeholders
 from src.export_service import export_channel_csv, channel_records
 from src.navigation import navigation_tree, breadcrumb, search_messages, leaf_for
 from src.dashboard_ui import render_styles, render_status, render_tree, render_message_card
@@ -23,7 +25,8 @@ initialize(st.session_state)
 try:
     config = load_config()
     db = Database(config.database_path)
-    templates = load_messages()
+    library = LibraryService(db)
+    templates = library.load()
 except Exception:
     st.error("設定、資料庫或訊息庫載入失敗。請依 README 檢查 .env、資料夾權限及 messages.json。")
     st.stop()
@@ -107,6 +110,8 @@ with st.sidebar:
 
 render_status(channel_name, chosen_channel)
 st.subheader("訊息庫")
+show_library_notice()
+render_create(library)
 search_column, scope_column = st.columns([3, 1])
 query = search_column.text_input("搜尋訊息標題、內容或標籤", key="message_search", placeholder="搜尋目前分類")
 all_library = scope_column.checkbox("搜尋全訊息庫", key="search_all")
@@ -160,6 +165,7 @@ with preview, st.container(key="wizard-preview-panel"):
                 st.info("尚未設定 TOOL_AGENT_USER_ID；＠工具代理目前只是文字。請在 .env 填入工具代理的使用者 ID 並重啟。")
         text = st.text_area("發送內容（可編輯）", key="draft", height=180,
                             on_change=update_text, args=(st.session_state, selected))
+        render_library_actions(library, selected)
         send_notes = st.text_input("本次操作備註")
         st.write(f"目標：{channel_name}（{chosen_channel}）")
         ready = all(value.strip() for value in values.values()) and not has_placeholders(text)

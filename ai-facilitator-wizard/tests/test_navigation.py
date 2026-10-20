@@ -25,7 +25,7 @@ def test_all_existing_messages_mapped_without_mutation():
 
 
 def test_unknown_messages_retained_for_human_review():
-    message = {**load_messages()[0], "message_id": "new-special", "intervention_type": "special", "category": "尚未分類"}
+    message = {**load_messages()[0], "message_id": "new-special", "intervention_type": "routine", "cps_substage": "未知階段", "category": "尚未分類"}
     assert leaf_for(message) == "unmapped"
     assert "unmapped" in leaves(navigation_tree([message]))
     assert search_messages([message], "unmapped") == [message]
