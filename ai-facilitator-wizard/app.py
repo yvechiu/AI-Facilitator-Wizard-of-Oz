@@ -7,20 +7,16 @@ from src.channel_service import ChannelService
 from src.database import Database
 from src.discord_client import DiscordClient
 from src.logging_service import LoggingService
-from src.message_service import STAGES, load_messages, filter_messages, template_fields, render_template, has_placeholders
+from src.message_service import STAGES, load_messages, template_fields, has_placeholders
 from src.export_service import export_channel_csv, channel_records
+from src.navigation import navigation_tree, breadcrumb, search_messages, leaf_for
+from src.dashboard_ui import render_styles, render_status, render_tree, render_copy
+from src.dashboard_state import initialize, draft_for, select_message, update_text, update_fields, operation_id, new_operation
 
 st.set_page_config(page_title="AI 引導員 Wizard 控制台", layout="wide")
-st.markdown("""<style>
-.block-container {padding-top:2rem;padding-bottom:2rem;}
-@media (min-width: 900px) and (min-height: 800px) {
-    div[data-testid="stColumn"]:has(.st-key-wizard-preview-panel) {
-        position: sticky; top: 3.5rem; align-self: flex-start;
-    }
-}
-</style>""", unsafe_allow_html=True)
-st.title("AI Facilitator · Wizard 控制台")
-st.caption("選擇情境 → 選用訊息 → 預覽確認")
+render_styles()
+st.header("AI Facilitator · Wizard 控制台")
+initialize(st.session_state)
 try:
     config = load_config()
     db = Database(config.database_path)
@@ -30,7 +26,7 @@ except Exception:
     st.stop()
 logger = LoggingService(db, DiscordClient(config.token), config.demo_mode)
 channel_service = ChannelService(db, DiscordClient(config.token), config.demo_mode)
-st.info("DEMO 模式：只儲存模擬紀錄，絕不呼叫 Discord API。" if config.demo_mode else "正式模式：確認後將傳送至 Discord。")
+st.caption("DEMO 模式：只儲存模擬紀錄，絕不呼叫 Discord API。" if config.demo_mode else "正式模式：確認後將傳送至 Discord。")
 if not config.demo_mode and not config.token:
     st.error("正式模式尚未設定 DISCORD_BOT_TOKEN；請在本機 .env 設定後重新啟動。")
 
@@ -92,61 +88,18 @@ with st.sidebar:
     channel_name = channel_options[chosen_channel]
     st.caption(f"頻道 ID：{chosen_channel}")
 
-# Buttons retain navigation values independently of widget cleanup when switching sections.
-for key, default in {"nav_group": "routine", "nav_stage": "Understanding the Challenge",
-                     "nav_substage": STAGES["Understanding the Challenge"][0], "nav_special": "討論停滯"}.items():
-    st.session_state.setdefault(key, default)
+with st.sidebar:
+    render_tree(navigation_tree(templates))
 
-
-def navigate(key, value):
-    st.session_state[key] = value
-    st.session_state.pop("selected", None)
-    st.session_state["confirm_send"] = False
-    st.session_state["message_search"] = ""
-
-
-def nav_buttons(options, state_key):
-    for start in range(0, len(options), 3):
-        row = options[start:start + 3]
-        columns = st.columns(len(row))
-        for column, (value, label) in zip(columns, row):
-            column.button(label, key=f"{state_key}:{value}", use_container_width=True,
-                          type="primary" if st.session_state[state_key] == value else "secondary",
-                          on_click=navigate, args=(state_key, value))
-
-
-nav_buttons([("routine", "常態流程引導"), ("special", "特殊情境介入"), ("general", "通用訊息")], "nav_group")
-labels = {"Understanding the Challenge": "理解挑戰", "Generating Ideas": "產生點子", "Preparing for Action": "行動準備"}
-sub_labels = dict(zip([sub for items in STAGES.values() for sub in items],
-                     ["A-1 建構機會", "A-2 探索資料", "A-3 陳述問題", "B-1 產生點子", "C-1 發展解決方案"]))
-group = st.session_state["nav_group"]
-if group == "routine":
-    nav_buttons(list(labels.items()), "nav_stage")
-    stage = st.session_state["nav_stage"]
-    if len(STAGES[stage]) > 1:
-        nav_buttons([(sub, sub_labels[sub]) for sub in STAGES[stage]], "nav_substage")
-        substage = st.session_state["nav_substage"]
-    else:
-        substage = STAGES[stage][0]
-    matches = filter_messages(templates, stage=stage, substage=substage, intervention="routine")
-    location = f"常態流程引導 / {labels[stage]} / {sub_labels[substage]}"
-elif group == "special":
-    categories = list(dict.fromkeys(m["category"] for m in templates if m["intervention_type"] == "special" and m["enabled"]))
-    if categories and st.session_state["nav_special"] not in categories:
-        st.session_state["nav_special"] = categories[0]
-    if categories:
-        nav_buttons([(category, category) for category in categories], "nav_special")
-    matches = [m for m in filter_messages(templates, intervention="special") if m["category"] == st.session_state["nav_special"]]
-    location = f"特殊情境介入 / {st.session_state['nav_special']}"
-else:
-    matches = filter_messages(templates, intervention="general")
-    location = "通用訊息 / 跨階段使用"
-
-with st.expander("找不到訊息？跨分類搜尋"):
-    query = st.text_input("搜尋所有訊息", key="message_search", placeholder="輸入內容、情境或標題")
-if query.strip():
-    matches = filter_messages(templates, query=query.strip())
-    location = "跨分類搜尋結果"
+render_status(st.session_state["experiment_state"], channel_name, chosen_channel)
+st.subheader("訊息庫")
+search_column, scope_column = st.columns([3, 1])
+query = search_column.text_input("搜尋訊息標題、內容或標籤", key="message_search", placeholder="搜尋目前分類")
+all_library = scope_column.checkbox("搜尋全訊息庫", key="search_all")
+leaf = st.session_state["navigation_state"]["selected"]
+tree = navigation_tree(templates)
+matches = search_messages(templates, leaf, query, all_library)
+location = "全訊息庫" if all_library else breadcrumb(leaf, tree)
 st.caption(f"{location} · {len(matches)} 則訊息")
 browse, preview = st.columns([1.15, 1], gap="large")
 with browse:
@@ -156,17 +109,17 @@ with browse:
     for m in matches:
         with st.container(border=True):
             st.markdown(f"**{m['title']}**")
-            st.caption("使用時機：" + m["trigger_condition"])
-            if query.strip():
-                st.caption({"routine": "常態流程引導", "special": "特殊情境介入", "general": "通用訊息"}[m["intervention_type"]] + " / " + m["category"])
-            st.write(m["content"])
-            if st.button("選用／重新載入", key=m["message_id"], use_container_width=True):
-                st.session_state["selected"] = m["message_id"]
-                st.session_state["draft"] = m["content"]
-                st.session_state["operation_id"] = str(uuid.uuid4())
-                st.session_state["confirm_send"] = False
-                st.session_state.pop("confirm_context", None)
-                st.session_state.pop("field_signature", None)
+            st.caption(breadcrumb(leaf_for(m), tree))
+            card_text = draft_for(st.session_state, m)["text"]
+            st.text(card_text)
+            actions = st.columns(3)
+            actions[0].button("編輯", key=m["message_id"], use_container_width=True,
+                              on_click=select_message, args=(st.session_state, m))
+            with actions[1].popover("複製", use_container_width=True):
+                render_copy(card_text)
+            actions[2].button("發送至 Discord", key=f"send:{m['message_id']}", use_container_width=True,
+                              on_click=select_message, args=(st.session_state, m))
+            st.caption("發送按鈕會開啟右側預覽，確認後才送出。")
 with preview, st.container(key="wizard-preview-panel"):
     st.subheader("預覽與發送")
     selected = next((m for m in templates if m["message_id"] == st.session_state.get("selected")), None)
@@ -174,48 +127,47 @@ with preview, st.container(key="wizard-preview-panel"):
         st.write("請先從左方選用訊息。")
     else:
         st.markdown(f"**{selected['title']}**")
+        st.caption("草稿分類：" + breadcrumb(leaf_for(selected), tree))
         fields = template_fields(selected["content"])
-        values = {}
+        saved_draft = draft_for(st.session_state, selected)
+        values = saved_draft["fields"]
         if fields:
-            st.caption("填寫欄位後自動產生訊息；再次變更欄位會重新產生內容，請最後再手動微調。")
+            st.caption("變更欄位會重新產生內容，請最後再手動微調。")
         for field in fields:
-            values[field] = st.text_input(field, key=f"field:{selected['message_id']}:{field}")
+            field_key = f"field:{selected['message_id']}:{field}"
+            st.session_state.setdefault(field_key, values[field])
+            st.text_input(field, key=field_key, on_change=update_fields, args=(st.session_state, selected))
             if field in {"成果要求", "操作說明"}:
                 st.caption("請直接引用原階段腳本，不臨場增加要求。")
             elif field == "目前提出的成果":
                 st.caption("請引用成員明確提出的內容，不自行整合成新結論。")
-        signature = (selected["message_id"], tuple(values.items()))
-        if st.session_state.get("field_signature") != signature:
-            st.session_state["draft"] = render_template(selected["content"], values)
-            st.session_state["field_signature"] = signature
         with st.expander("使用說明與模板資訊"):
             st.write(selected["observable_indicators"])
             st.write(selected["wizard_notes"])
             st.caption(f"{selected['message_id']} · 版本 {selected['template_version']} · {selected['cps_substage']}")
         if selected["message_id"] == "G04":
             st.info("＠工具代理僅為文字，不會通知或啟動另一隻 Bot。")
-        text = st.text_area("發送內容（可編輯）", key="draft", height=180)
+        text = st.text_area("發送內容（可編輯）", key="draft", height=180,
+                            on_change=update_text, args=(st.session_state, selected))
+        with st.popover("複製編輯後內容"):
+            render_copy(text)
         send_notes = st.text_input("本次操作備註")
         st.write(f"目標：{channel_name}（{chosen_channel}）")
         ready = all(value.strip() for value in values.values()) and not has_placeholders(text)
         ready = ready and bool(text.strip()) and len(text.encode("utf-16-le")) // 2 <= 2000
         if not ready:
             st.warning("請填妥所有模板欄位，移除〈佔位文字〉，並確認內容不空白且在 2000 字元限制內。")
-        target = (chosen_channel, config.demo_mode)
-        if st.session_state.get("operation_target") != target:
-            st.session_state["operation_id"] = str(uuid.uuid4())
-            st.session_state["operation_target"] = target
-            st.session_state["confirm_send"] = False
-        opid = st.session_state["operation_id"]
+        opid = operation_id(st.session_state, selected["message_id"], chosen_channel, config.demo_mode)
         previous = logger.get_operation(opid)
-        context = (chosen_channel, text, send_notes, config.demo_mode)
+        context = (selected["message_id"], chosen_channel, text, send_notes, config.demo_mode)
         if st.session_state.get("confirm_context") != context:
             st.session_state["confirm_send"] = False
             st.session_state["confirm_context"] = context
         confirmed = st.checkbox("我已確認目標頻道及訊息內容", key="confirm_send")
         if st.button("確認模擬發送" if config.demo_mode else "確認發送 Discord", type="primary", disabled=not confirmed or not ready or previous is not None):
             try:
-                result = logger.send_to_channel(opid, chosen_channel, selected, text, send_notes)
+                with st.spinner("正在儲存紀錄並發送，請勿重複操作…"):
+                    result = logger.send_to_channel(opid, chosen_channel, selected, text, send_notes)
                 st.rerun()
             except Exception:
                 st.error("操作未完整完成。請查詢下方紀錄；若為 PENDING 或 UNKNOWN，請先人工核對 Discord，勿直接重送。")
@@ -225,10 +177,9 @@ with preview, st.container(key="wizard-preview-panel"):
                 st.success(f"{status} · Discord Message ID：{previous['discord_message_id'] or '—'}")
             else:
                 st.warning(f"{status}：{previous['error_message'] or '尚未確認，可能於送出期間中斷，請人工核對'}")
-            def next_operation():
-                st.session_state["operation_id"] = str(uuid.uuid4())
-                st.session_state["confirm_send"] = False
-            st.button("準備下一次操作（必要時先核對 Discord）", on_click=next_operation)
+            st.button("準備下一次操作（必要時先核對 Discord）", on_click=new_operation,
+                      args=(st.session_state, selected["message_id"], chosen_channel, config.demo_mode))
+
 
 with st.expander("Wizard 觀察紀錄與本頻道匯出"):
     st.subheader("Wizard 觀察紀錄")

@@ -70,24 +70,37 @@ def test_switch_channel_clears_confirmation_and_separates_logs(tmp_path, monkeyp
     assert {r["discord_channel_id"] for r in rows} == {"123456789012345678", "223456789012345678"}
 
 
-def test_navigation_remembers_routine_and_skips_single_substage(tmp_path, monkeypatch):
+def test_tree_navigation_preserves_experiment_and_expansion(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "navigation.sqlite3"))
     monkeypatch.setenv("DEMO_MODE", "true")
-    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
-    assert not any(s.label in {"CPS 階段", "CPS 子階段", "介入類型"} for s in app.selectbox)
-    app.button(key="nav_substage:A-2 Exploring Data").click().run()
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15)
+    experiment = {"stage": "A-2", "status": "暫停", "remaining": "8 分鐘"}
+    app.session_state["experiment_state"] = experiment.copy()
+    app.run()
+    assert app.session_state["navigation_state"]["selected"] == "A-1"
+    assert "▾" in app.button(key="tree:routine").label
+    assert "▾" in app.button(key="tree:phase:0").label
+    assert app.button(key="R01")
+    app.button(key="tree:A-2").click().run()
     assert app.button(key="R03")
-    app.button(key="nav_group:special").click().run()
-    app.button(key="nav_special:參與不平衡").click().run()
-    assert app.button(key="S07")
-    app.button(key="nav_group:routine").click().run()
+    app.button(key="tree:routine").click().run()
+    assert "▸" in app.button(key="tree:routine").label
+    assert not any(b.key == "tree:A-2" for b in app.button)
     assert app.button(key="R03")
-    app.button(key="nav_stage:Generating Ideas").click().run()
+    app.button(key="tree:routine").click().run()
+    app.button(key="tree:phase:1").click().run()
+    app.button(key="tree:B-1").click().run()
     assert app.button(key="R07")
-    assert not any(b.key and b.key.startswith("nav_substage:") for b in app.button)
-    app.button(key="nav_stage:Preparing for Action").click().run()
+    app.button(key="tree:phase:2").click().run()
+    app.button(key="tree:C-1").click().run()
     assert app.button(key="R09")
-    assert not any(b.key and b.key.startswith("nav_substage:") for b in app.button)
+    app.button(key="tree:special").click().run()
+    app.button(key="tree:special:participation").click().run()
+    assert app.button(key="S07")
+    app.button(key="tree:A-1").click().run()
+    assert app.button(key="R01")
+    assert app.session_state["experiment_state"] == experiment
+    assert any(m.value == "A-2 探索資料" for m in app.markdown)
     assert not app.exception
 
 
@@ -99,8 +112,9 @@ def test_general_fields_block_send_and_preserve_edits(tmp_path, monkeypatch):
         raise AssertionError("Demo 不可呼叫 API")
     monkeypatch.setattr(DiscordClient, "send", forbidden)
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
-    app.button(key="nav_group:general").click().run()
-    assert len([b for b in app.button if b.key and b.key.startswith("G")]) == 7
+    app.button(key="tree:general").click().run()
+    app.button(key="tree:general:flow").click().run()
+    assert len([b for b in app.button if b.key in {"G03", "G07"}]) == 2
     app.button(key="G03").click().run()
     app.checkbox(key="confirm_send").check().run()
     assert by_label(app.button, "確認模擬發送").disabled
@@ -116,8 +130,10 @@ def test_general_fields_block_send_and_preserve_edits(tmp_path, monkeypatch):
     assert row["send_status"] == "DEMO" and row["intervention_type"] == "general"
     assert row["actual_sent_message"] == "手動微調後的活動說明"
     assert "〈成果要求〉" in row["original_message"]
-    app.button(key="nav_group:special").click().run()
-    assert not app.checkbox  or not any(c.key == "confirm_send" for c in app.checkbox)
+    app.button(key="tree:special").click().run()
+    app.button(key="tree:special:stall").click().run()
+    assert app.text_area(key="draft").value == "手動微調後的活動說明"
+    assert not app.checkbox(key="confirm_send").value
 
 
 def test_cross_category_search(tmp_path, monkeypatch):
@@ -125,9 +141,90 @@ def test_cross_category_search(tmp_path, monkeypatch):
     monkeypatch.setenv("DEMO_MODE", "true")
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
     app.text_input(key="message_search").set_value("成果要求").run()
+    assert not any(b.key == "G03" for b in app.button)
+    app.checkbox(key="search_all").check().run()
     assert app.button(key="G03")
     app.button(key="G03").click().run()
-    app.button(key="nav_group:routine").click().run()
-    assert app.text_input(key="message_search").value == ""
-    assert not any(c.key == "confirm_send" for c in app.checkbox)
+    app.text_input(key="field:G03:當前活動").set_value("探索資料").run()
+    app.button(key="tree:A-2").click().run()
+    assert app.text_input(key="field:G03:當前活動").value == "探索資料"
+    assert not app.checkbox(key="confirm_send").value
+    assert not app.exception
+
+
+def test_drafts_survive_switching_messages_and_reselection_does_not_resend(tmp_path, monkeypatch):
+    path = tmp_path / "drafts.sqlite3"
+    monkeypatch.setenv("DATABASE_PATH", str(path))
+    monkeypatch.setenv("DEMO_MODE", "true")
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
+    app.button(key="send:R01").click().run()
+    assert Database(path).rows("SELECT * FROM operations") == []
+    app.text_area(key="draft").set_value("修改第一則\n保留換行").run()
+    app.button(key="R02").click().run()
+    app.text_area(key="draft").set_value("修改第二則").run()
+    app.button(key="R01").click().run()
+    assert app.text_area(key="draft").value == "修改第一則\n保留換行"
+    assert any(c.value == "修改第一則\n保留換行" for c in app.code)
+    app.checkbox(key="confirm_send").check().run()
+    by_label(app.button, "確認模擬發送").click().run()
+    app.button(key="R02").click().run()
+    assert app.text_area(key="draft").value == "修改第二則"
+    app.button(key="send:R01").click().run()
+    assert by_label(app.button, "確認模擬發送").disabled
+    assert len(Database(path).rows("SELECT * FROM operations")) == 1
+    assert not app.exception
+
+
+def test_every_tree_category_can_expand_select_and_collapse(tmp_path, monkeypatch):
+    from src.navigation import navigation_tree, search_messages
+    from src.message_service import load_messages
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "all-categories.sqlite3"))
+    monkeypatch.setenv("DEMO_MODE", "true")
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
+    messages = load_messages()
+    for root in navigation_tree(messages):
+        if root["id"] not in app.session_state["navigation_state"]["expanded"]:
+            app.button(key=f"tree:{root['id']}").click().run()
+        for node in root["children"]:
+            if "children" in node:
+                if node["id"] not in app.session_state["navigation_state"]["expanded"]:
+                    app.button(key=f"tree:{node['id']}").click().run()
+                selectable = node["children"]
+            else:
+                selectable = [node]
+            for leaf in selectable:
+                app.button(key=f"tree:{leaf['id']}").click().run()
+                expected = {m["message_id"] for m in search_messages(messages, leaf["id"])}
+                actual = {b.key for b in app.button if b.key in {m["message_id"] for m in messages}}
+                assert actual == expected
+                assert not app.exception
+            if "children" in node:
+                app.button(key=f"tree:{node['id']}").click().run()
+                assert all(not any(b.key == f"tree:{leaf['id']}" for b in app.button) for leaf in selectable)
+        app.button(key=f"tree:{root['id']}").click().run()
+        assert root["id"] not in app.session_state["navigation_state"]["expanded"]
+    assert app.session_state["experiment_state"] == {"stage": None, "status": "未開始", "remaining": None}
+
+
+def test_failed_send_preserves_error_and_blocks_duplicate(tmp_path, monkeypatch):
+    from src.discord_client import SendResult
+    from unittest.mock import Mock
+    path = tmp_path / "failed-ui.sqlite3"
+    monkeypatch.setenv("DATABASE_PATH", str(path))
+    monkeypatch.setenv("DEMO_MODE", "false")
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "ui-test-not-a-real-token")
+    sender = Mock(return_value=SendResult("FAILED", error="Discord 拒絕請求（HTTP 403）"))
+    monkeypatch.setattr(DiscordClient, "send", sender)
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
+    app.button(key="send:R01").click().run()
+    app.checkbox(key="confirm_send").check().run()
+    by_label(app.button, "確認發送 Discord").click().run()
+    assert any("FAILED" in w.value and "403" in w.value for w in app.warning)
+    assert by_label(app.button, "確認發送 Discord").disabled
+    app.button(key="R01").click().run()
+    assert by_label(app.button, "確認發送 Discord").disabled
+    sender.assert_called_once()
+    row = Database(path).rows("SELECT * FROM operations")[0]
+    assert row["send_status"] == "FAILED" and "403" in row["error_message"]
+    assert "ui-test-not-a-real-token" not in str(row)
     assert not app.exception
