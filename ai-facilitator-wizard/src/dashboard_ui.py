@@ -1,6 +1,6 @@
 """Streamlit dashboard components using the existing session-state architecture."""
 import streamlit as st
-from src.navigation import STAGE_LABELS
+from src.timers import initialize_timers, start_timer, stop_timer, elapsed, remaining, clock_text
 
 
 def render_styles():
@@ -17,22 +17,56 @@ def render_styles():
     </style>""", unsafe_allow_html=True)
 
 
-def render_status(experiment, channel_name, channel_id):
+def start_stage_timer():
+    duration = int(st.session_state["stage_minutes"]) * 60 + int(st.session_state["stage_seconds"])
+    if duration > 0:
+        start_timer(st.session_state["timers"], "stage", duration)
+
+
+def render_status(channel_name, channel_id):
     with st.container(key="experiment-status"):
-        columns = st.columns([1.3, 0.8, 0.9, 1.5])
-        stage = experiment.get("stage")
-        label = next((label for label in STAGE_LABELS.values() if label.split()[0] == stage), stage)
-        columns[0].caption("目前實驗階段")
-        columns[0].write(label or "尚未設定")
-        columns[1].caption("實驗狀態")
-        columns[1].write(experiment.get("status", "未開始"))
-        columns[2].caption("階段剩餘時間")
-        remaining = experiment.get("remaining")
-        columns[2].write(remaining if remaining is not None else "—（尚無計時功能）")
-        columns[3].caption("Discord 目標頻道（連線未驗證）")
-        columns[3].write(channel_name)
-        columns[3].caption(channel_id)
-    st.caption("實驗階段／狀態為預留顯示位置；目前未啟用管理或計時功能。瀏覽訊息不會變更實驗狀態。")
+        render_timer_controls(channel_name, channel_id)
+
+
+@st.fragment(run_every=1.0)
+def render_timer_controls(channel_name, channel_id):
+    initialize_timers(st.session_state)
+    timers = st.session_state["timers"]
+    overall, stage = timers["overall"], timers["stage"]
+    total_column, stage_column, channel_column = st.columns([1.1, 1.7, 1.2])
+    with total_column:
+        st.caption("整場實驗碼表")
+        st.metric("總經過時間", clock_text(elapsed(overall)), label_visibility="collapsed")
+        start, stop = st.columns(2)
+        start.button("開始", key="overall_start", disabled=overall["running"], use_container_width=True,
+                     on_click=start_timer, args=(timers, "overall"))
+        stop.button("結束", key="overall_stop", disabled=not overall["running"], use_container_width=True,
+                    on_click=stop_timer, args=(timers, "overall"))
+        st.caption("計時中" if overall["running"] else "已結束；再次開始會從零計時" if overall["ended_at"] is not None else "按開始後才會計時")
+    with stage_column:
+        st.caption("階段倒數計時器")
+        minute_column, second_column = st.columns(2)
+        minutes = minute_column.number_input("分鐘", min_value=0, max_value=9999, value=5, step=1,
+                                             key="stage_minutes", disabled=stage["running"])
+        seconds = second_column.number_input("秒", min_value=0, max_value=59, value=0, step=1,
+                                              key="stage_seconds", disabled=stage["running"])
+        duration = int(minutes) * 60 + int(seconds)
+        left = remaining(stage) if stage["started_at"] is not None else duration
+        st.metric("階段剩餘時間", clock_text(left, round_up=True), label_visibility="collapsed")
+        start, stop = st.columns(2)
+        start.button("開始", key="stage_start", disabled=stage["running"] or duration <= 0, use_container_width=True,
+                     on_click=start_stage_timer)
+        stop.button("結束", key="stage_stop", disabled=not stage["running"], use_container_width=True,
+                    on_click=stop_timer, args=(timers, "stage"))
+        if left <= 0 and stage["started_at"] is not None:
+            st.caption(f"時間到 · 超時 {clock_text(-left)} · " + ("請按結束停止" if stage["running"] else "已結束"))
+        else:
+            st.caption("倒數中；按結束停止" if stage["running"] else "已結束；可設定下一次時間再開始" if stage["ended_at"] is not None else "輸入分、秒後按開始")
+    with channel_column:
+        st.caption("Discord 目標頻道（連線未驗證）")
+        st.write(channel_name)
+        st.caption(channel_id)
+        st.caption("兩個計時器各自控制，不受訊息分類或頻道切換影響。")
 
 
 def render_tree(tree):

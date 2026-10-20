@@ -100,7 +100,8 @@ def test_tree_navigation_preserves_experiment_and_expansion(tmp_path, monkeypatc
     app.button(key="tree:A-1").click().run()
     assert app.button(key="R01")
     assert app.session_state["experiment_state"] == experiment
-    assert any(m.value == "A-2 探索資料" for m in app.markdown)
+    assert not any(m.value == "A-2 探索資料" for m in app.markdown)
+    assert app.button(key="overall_start") and app.button(key="stage_start")
     assert not app.exception
 
 

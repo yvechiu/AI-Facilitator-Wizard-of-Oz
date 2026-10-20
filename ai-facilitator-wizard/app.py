@@ -91,7 +91,7 @@ with st.sidebar:
 with st.sidebar:
     render_tree(navigation_tree(templates))
 
-render_status(st.session_state["experiment_state"], channel_name, chosen_channel)
+render_status(channel_name, chosen_channel)
 st.subheader("訊息庫")
 search_column, scope_column = st.columns([3, 1])
 query = search_column.text_input("搜尋訊息標題、內容或標籤", key="message_search", placeholder="搜尋目前分類")
