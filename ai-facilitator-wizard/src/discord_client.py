@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import re
 import requests
 
 
@@ -10,18 +11,24 @@ class SendResult:
 
 
 class DiscordClient:
-    def __init__(self, token, http=None):
+    def __init__(self, token, http=None, tool_agent_user_id=""):
         self.token = token
+        if tool_agent_user_id and (not tool_agent_user_id.isascii() or not tool_agent_user_id.isdigit() or not 17 <= len(tool_agent_user_id) <= 20):
+            raise ValueError("工具代理使用者 ID 格式錯誤")
+        self.tool_agent_user_id = tool_agent_user_id
         self.http = http if http is not None else requests.Session()
 
     def send(self, channel_id, content, operation_id):
         if not self.token:
             return SendResult("FAILED", error="尚未設定 Bot Token")
+        allowed_mentions = {"parse": [], "replied_user": False}
+        if self.tool_agent_user_id and re.search(rf"<@!?{self.tool_agent_user_id}>", content):
+            allowed_mentions["users"] = [self.tool_agent_user_id]
         try:
             response = self.http.post(
                 f"https://discord.com/api/v10/channels/{channel_id}/messages",
                 headers={"Authorization": f"Bot {self.token}"},
-                json={"content": content, "allowed_mentions": {"parse": [], "replied_user": False},
+                json={"content": content, "allowed_mentions": allowed_mentions,
                       "nonce": operation_id.replace("-", "")[:25], "enforce_nonce": True},
                 timeout=(5, 15), allow_redirects=False,
             )

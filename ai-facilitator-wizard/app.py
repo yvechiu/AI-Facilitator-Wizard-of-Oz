@@ -24,8 +24,8 @@ try:
 except Exception:
     st.error("設定、資料庫或訊息庫載入失敗。請依 README 檢查 .env、資料夾權限及 messages.json。")
     st.stop()
-logger = LoggingService(db, DiscordClient(config.token), config.demo_mode)
-channel_service = ChannelService(db, DiscordClient(config.token), config.demo_mode)
+logger = LoggingService(db, DiscordClient(config.token, tool_agent_user_id=config.tool_agent_user_id), config.demo_mode)
+channel_service = ChannelService(db, DiscordClient(config.token, tool_agent_user_id=config.tool_agent_user_id), config.demo_mode)
 st.caption("DEMO 模式：只儲存模擬紀錄，絕不呼叫 Discord API。" if config.demo_mode else "正式模式：確認後將傳送至 Discord。")
 if not config.demo_mode and not config.token:
     st.error("正式模式尚未設定 DISCORD_BOT_TOKEN；請在本機 .env 設定後重新啟動。")
@@ -143,10 +143,23 @@ with preview, st.container(key="wizard-preview-panel"):
                 st.caption("請引用成員明確提出的內容，不自行整合成新結論。")
         with st.expander("使用說明與模板資訊"):
             st.write(selected["observable_indicators"])
-            st.write(selected["wizard_notes"])
+            if selected["message_id"] == "G04" and config.tool_agent_user_id:
+                st.write("未插入真實提及時為普通文字；插入後僅呼叫設定的工具代理。通用訊息不需每階段逐則發送。")
+            else:
+                st.write(selected["wizard_notes"])
             st.caption(f"{selected['message_id']} · 版本 {selected['template_version']} · {selected['cps_substage']}")
         if selected["message_id"] == "G04":
-            st.info("＠工具代理僅為文字，不會通知或啟動另一隻 Bot。")
+            if config.tool_agent_user_id:
+                def insert_tool_mention():
+                    current = st.session_state["draft"]
+                    mention = f"<@{config.tool_agent_user_id}>"
+                    st.session_state["draft"] = current.replace("＠工具代理", mention).replace("@工具代理", mention)
+                    update_text(st.session_state, selected)
+                    st.session_state["confirm_send"] = False
+                st.button("插入工具代理提及", on_click=insert_tool_mention)
+                st.caption("此請求會呼叫指定工具代理，摘要本頻道自啟動後已收到的全部參與者討論；目前不會依整理範圍欄位過濾。變更欄位後可能需重新插入提及。")
+            else:
+                st.info("尚未設定 TOOL_AGENT_USER_ID；＠工具代理目前只是文字。請在 .env 填入工具代理的使用者 ID 並重啟。")
         text = st.text_area("發送內容（可編輯）", key="draft", height=180,
                             on_change=update_text, args=(st.session_state, selected))
         with st.popover("複製編輯後內容"):

@@ -229,3 +229,27 @@ def test_failed_send_preserves_error_and_blocks_duplicate(tmp_path, monkeypatch)
     assert row["send_status"] == "FAILED" and "403" in row["error_message"]
     assert "ui-test-not-a-real-token" not in str(row)
     assert not app.exception
+
+
+def test_insert_tool_mention_then_demo_send_without_api(tmp_path, monkeypatch):
+    path = tmp_path / "tool-demo.sqlite3"
+    monkeypatch.setenv("DATABASE_PATH", str(path))
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("TOOL_AGENT_USER_ID", "123456789012345678")
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Demo cannot call Discord")
+    monkeypatch.setattr(DiscordClient, "send", forbidden)
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=15).run()
+    app.button(key="tree:general").click().run()
+    app.button(key="tree:general:other").click().run()
+    app.button(key="G04").click().run()
+    app.text_input(key="field:G04:本次整理範圍").set_value("本階段的討論").run()
+    by_label(app.button, "插入工具代理提及").click().run()
+    assert "<@123456789012345678>" in app.text_area(key="draft").value
+    app.checkbox(key="confirm_send").check().run()
+    by_label(app.button, "確認模擬發送").click().run()
+    assert not app.exception
+    result = Database(path).rows("SELECT * FROM operations")[0]
+    assert result["send_status"] == "DEMO"
+    assert "<@123456789012345678>" in result["actual_sent_message"]
+    assert "＠工具代理" in result["original_message"]
